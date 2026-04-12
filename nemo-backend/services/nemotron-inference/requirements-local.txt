@@ -1,0 +1,12 @@
+# Requirements for local Nemotron inference on GN100
+# Install with: pip install -r requirements-local.txt
+
+fastapi>=0.100.0
+uvicorn>=0.23.0
+transformers>=4.40.0
+accelerate>=0.27.0
+safetensors>=0.4.0
+sentencepiece>=0.1.99
+mamba-ssm>=2.0.0
+causal-conv1d>=1.2.0
+einops>=0.7.0

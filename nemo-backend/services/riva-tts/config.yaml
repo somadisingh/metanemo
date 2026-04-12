@@ -1,0 +1,17 @@
+# Riva TTS Configuration
+# Model: FastPitch
+
+riva:
+  speech_synthesis:
+    models:
+      - name: "fastpitch-hifigan"
+        languages: ["en-US"]
+        voices:
+          - "English-US.Female-1"
+          - "English-US.Male-1"
+        
+    config:
+      language_code: en-US
+      encoding: LINEAR_PCM
+      sample_rate_hz: 22050
+      voice_name: English-US.Female-1

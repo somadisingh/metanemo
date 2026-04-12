@@ -1,0 +1,149 @@
+version: "3.9"
+
+networks:
+  metaglass-net:
+    driver: bridge
+
+volumes:
+  pgdata:
+  nim-model-cache:
+  riva-model-cache:
+
+services:
+  postgres-postgis:
+    image: postgis/postgis:15-3.4
+    container_name: metaglass-postgres
+    networks: [metaglass-net]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./data/schema/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  data-pipeline:
+    build: ./data
+    container_name: metaglass-data-pipeline
+    networks: [metaglass-net]
+    depends_on:
+      postgres-postgis:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: ${POSTGRES_HOST}
+      POSTGRES_PORT: ${POSTGRES_PORT}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      SOCRATA_APP_TOKEN: ${SOCRATA_APP_TOKEN}
+      SOCRATA_RESTAURANT_ENDPOINT: ${SOCRATA_RESTAURANT_ENDPOINT}
+      SOCRATA_COLLISION_ENDPOINT: ${SOCRATA_COLLISION_ENDPOINT}
+      PIPELINE_CRON_HOUR: ${PIPELINE_CRON_HOUR}
+      PIPELINE_CRON_MINUTE: ${PIPELINE_CRON_MINUTE}
+    restart: unless-stopped
+
+  riva-asr:
+    image: nvcr.io/nvidia/riva/riva-speech:2.14.0
+    container_name: metaglass-riva-asr
+    networks: [metaglass-net]
+    volumes:
+      - riva-model-cache:/data
+      - ./services/riva-asr/config.yaml:/config.yaml:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "grpc_health_probe", "-addr=:50051"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+
+  nemotron-nim:
+    image: nvcr.io/nim/nvidia/nemotron-3-nano-30b-a3b:latest
+    container_name: metaglass-nemotron
+    networks: [metaglass-net]
+    volumes:
+      - nim-model-cache:/opt/nim/.cache
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/v1/health/ready"]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+    restart: unless-stopped
+
+  nemoclaw:
+    build: ./services/nemoclaw
+    container_name: metaglass-nemoclaw
+    networks: [metaglass-net]
+    depends_on:
+      nemotron-nim:
+        condition: service_healthy
+      postgres-postgis:
+        condition: service_healthy
+      user-profile:
+        condition: service_healthy
+    environment:
+      NEMOTRON_NIM_HOST: ${NEMOTRON_NIM_HOST}
+      NEMOTRON_NIM_PORT: ${NEMOTRON_NIM_PORT}
+      NEMOTRON_MODEL_NAME: ${NEMOTRON_MODEL_NAME}
+      NEMOCLAW_CONFIDENCE_THRESHOLD: ${NEMOCLAW_CONFIDENCE_THRESHOLD}
+      POSTGRES_HOST: ${POSTGRES_HOST}
+      POSTGRES_PORT: ${POSTGRES_PORT}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      SOCRATA_APP_TOKEN: ${SOCRATA_APP_TOKEN}
+      MTA_API_KEY: ${MTA_API_KEY}
+    restart: unless-stopped
+
+  middleware:
+    build: ./services/middleware
+    container_name: metaglass-middleware
+    networks: [metaglass-net]
+    ports:
+      - "${TAILSCALE_GN100_IP}:8080:8080"
+    depends_on:
+      nemoclaw:
+        condition: service_started
+      riva-asr:
+        condition: service_healthy
+    
+  user-profile:
+    build: ./services/user-profile
+    container_name: user-profile
+    restart: unless-stopped
+    ports:
+      - 8081:8081
+    networks:
+      - metaglass-net
+    depends_on:
+      postgres-postgis:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - BEHAVIOR_RETENTION_DAYS=${BEHAVIOR_RETENTION_DAYS:-90}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    healthcheck:
+      test: [CMD, curl, -f, http://localhost:8081/health]
+      interval: 10s
+      timeout: 5s
+      retries: 3

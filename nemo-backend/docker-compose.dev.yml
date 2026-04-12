@@ -1,0 +1,79 @@
+# Development compose with local Nemotron inference
+# Use: docker compose -f docker-compose.dev.yml up -d
+
+networks:
+  metaglass-net:
+    driver: bridge
+
+volumes:
+  pgdata:
+
+services:
+  postgres-postgis:
+    image: imresamu/postgis:15-3.4-alpine
+    container_name: metaglass-postgres
+    networks: [metaglass-net]
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./data/schema/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-metaglass}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-metaglass2026}
+      POSTGRES_DB: ${POSTGRES_DB:-metaglass}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U metaglass"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  nemoclaw:
+    build: ./services/nemoclaw
+    container_name: metaglass-nemoclaw
+    networks: [metaglass-net]
+    ports:
+      - "8090:8090"
+    depends_on:
+      postgres-postgis:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      POSTGRES_HOST: postgres-postgis
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-metaglass}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-metaglass2026}
+      POSTGRES_DB: ${POSTGRES_DB:-metaglass}
+      NEMOTRON_NIM_HOST: metaglass-nemotron
+      NEMOTRON_NIM_PORT: 8000
+      NEMOCLAW_CONFIDENCE_THRESHOLD: 0.7
+      SOCRATA_APP_TOKEN: ${SOCRATA_APP_TOKEN:-}
+      MTA_API_KEY: ${MTA_API_KEY:-}
+      # Ollama fallback (running on host when Nemotron unavailable)
+      USE_OLLAMA: "true"  # Enable as fallback
+      OLLAMA_HOST: host.docker.internal
+      OLLAMA_PORT: 11434
+      OLLAMA_MODEL: llama3.2:3b
+    restart: unless-stopped
+
+  nemotron-inference:
+    build: ./services/nemotron-inference
+    container_name: metaglass-nemotron
+    networks: [metaglass-net]
+    ports:
+      - "8000:8000"
+    volumes:
+      - ${HOME}/models/llm:/models:ro
+    environment:
+      MODEL_PATH: /models/nvidia--NVIDIA-Nemotron-3-Nano-30B-A3B-NVFP4
+      MAX_NEW_TOKENS: 256
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped

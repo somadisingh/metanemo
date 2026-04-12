@@ -1,0 +1,50 @@
+# NemoClaw Agent Configuration
+
+agent:
+  name: pseudoMetaGlass-agent
+  model: nemotron-3-nano-30b-a3b
+  nim_endpoint: http://nemotron-nim:8000
+  
+  tools:
+    - name: cold_query
+      description: "Query cached PostGIS spatial data for restaurants near GPS coordinates"
+      parameters:
+        latitude: float
+        longitude: float
+        radius_meters: int
+        
+    - name: hot_query
+      description: "Fetch live NYC 311 and MTA GTFS-RT data near GPS coordinates"
+      parameters:
+        latitude: float
+        longitude: float
+
+  sandbox:
+    type: OpenShell
+    policy:
+      allow_network: false
+      allow_filesystem: false
+      allow_subprocess: false
+
+  confidence_threshold: 0.7
+  
+  intents:
+    food:
+      keywords: ["restaurant", "food", "eat", "dining", "health grade", "inspection"]
+      tool: cold_query
+      
+    traffic:
+      keywords: ["traffic", "accident", "collision", "crash", "dangerous"]
+      tool: hot_query
+      
+    transit:
+      keywords: ["subway", "train", "bus", "mta", "transit", "delay"]
+      tool: hot_query
+      
+    noise:
+      keywords: ["noise", "loud", "construction", "jackhammer", "quiet"]
+      tool: hot_query
+      
+    safety:
+      keywords: ["safe", "danger", "hazard", "warning", "alert"]
+      tool: both

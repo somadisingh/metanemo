@@ -1,0 +1,20 @@
+# Riva ASR Configuration
+# Model: Parakeet CTC 1.1B
+
+riva:
+  speech_recognition:
+    models:
+      - name: "parakeet-ctc-1.1b"
+        languages: ["en-US"]
+        
+    streaming:
+      enabled: true
+      chunk_duration_ms: 100
+      
+    config:
+      encoding: LINEAR_PCM
+      sample_rate_hertz: 16000
+      language_code: en-US
+      max_alternatives: 1
+      enable_automatic_punctuation: true
+      audio_channel_count: 1

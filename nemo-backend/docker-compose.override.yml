@@ -1,0 +1,73 @@
+services:
+  nemotron-nim:
+    image: busybox:latest
+    container_name: metaglass-nemotron
+    networks: [metaglass-net]
+    command: ["sh", "-c", "echo healthy > /tmp/health && httpd -f -p 8000 -h /tmp & while true; do sleep 3600; done"]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://localhost:8000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 2s
+
+  riva-asr:
+    image: busybox:latest
+    container_name: metaglass-riva-asr
+    networks: [metaglass-net]
+    command: ["sh", "-c", "while true; do sleep 3600; done"]
+    healthcheck:
+      test: ["CMD", "true"]
+      interval: 5s
+      timeout: 3s
+      retries: 1
+      start_period: 1s
+
+  riva-tts:
+    image: busybox:latest
+    container_name: metaglass-riva-tts
+    networks: [metaglass-net]
+    command: ["sh", "-c", "while true; do sleep 3600; done"]
+    healthcheck:
+      test: ["CMD", "true"]
+      interval: 5s
+      timeout: 3s
+      retries: 1
+      start_period: 1s
+
+  nemoclaw:
+    ports:
+      - "8090:8090"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      NEMOTRON_NIM_HOST: host.docker.internal
+      NEMOTRON_NIM_PORT: "8000"
+      NEMOTRON_MODEL_NAME: nemotron-3-nano
+      NEMOCLAW_CONFIDENCE_THRESHOLD: "0.7"
+      POSTGRES_HOST: postgres-postgis
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: metaglass
+      POSTGRES_PASSWORD: metaglass2026
+      POSTGRES_DB: metaglass
+      USE_OLLAMA: "false"
+      OLLAMA_HOST: host.docker.internal
+      OLLAMA_PORT: "11434"
+
+  middleware:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      TAILSCALE_GN100_IP: "0.0.0.0"
+      TAILSCALE_GN100_PORT: "8080"
+      NEMOCLAW_HOST: nemoclaw
+      NEMOCLAW_PORT: "8090"
+      RIVA_ASR_HOST: host.docker.internal
+      RIVA_ASR_PORT: "50051"
+      RIVA_TTS_HOST: host.docker.internal
+      RIVA_TTS_PORT: "50052"
+      LOG_LEVEL: info
+      NODE_ENV: production
+
+  postgres-postgis:
+    image: imresamu/postgis:15-3.4-alpine
