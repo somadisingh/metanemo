@@ -1,0 +1,44 @@
+Film & Television: "The Screen Walk"
+Dataset: Film Permits (Mayor's Office of Media and Entertainment).
+
+Why it’s powerful: This is a live feed of every location where filming is currently happening or has recently occurred.
+
+The AI Alert: When the user walks past the steps of the New York Public Library, the agent can cross-reference the ParkingHeld or Project fields to say: "You're standing where Ghostbusters was filmed; fun fact, they’re actually filming a new project three blocks away on 5th Ave today."
+
+Architecture & History: "The Living Museum"
+Dataset: LPC Individual Landmark and Historic District Data.
+
+Why it’s powerful: This contains the exact GeoJSON boundaries of every historic site.
+
+The AI Alert: Instead of just saying "this is old," Nemotron can pull the Date_Designated and the historical summary to provide a deep-dive narrative the moment the user looks at a specific cornice or facade.
+
+Public Art & Murals: "The Street Gallery"
+Dataset: Directory of Temporary Public Art (NYC DOT Art) and Art in the Parks.
+
+Why it’s powerful: It covers the murals, sculptures, and "asphalt art" that Google Maps often misses.
+
+The AI Alert: Using the Artist and Description fields, the glasses can identify a mural and explain the artist's intent while the user is looking at it.
+
+Institutions & Venues: "The Pulse"
+Dataset: NYC Cultural Assets Map.
+
+Why it’s powerful: A massive directory of dance studios, theaters, museums, and community centers.
+
+The AI Alert: Using the Main_Phone or Website fields, NemoClaw can fetch "What's on tonight" for a theater the user is walking past.
+
+The Cultural Insight Pipeline
+Building this track requires a vision-to-data-to-speech pipeline. Below is a conceptual diagram of how your local NVIDIA stack handles a "Cultural Trigger."
+HUMAN IMPACT:
+
+The Safety Engine Datasets (What You Are Using Now)
+Based on the architecture we built, your system relies on a mix of "Cold" (downloaded locally) and "Hot" (live API) datasets from NYC Open Data and city agencies:
+
+DOHMH New York City Restaurant Inspection Results (Cold): Used to check health grades (A, B, C) and critical violations.
+
+NYPD Motor Vehicle Collisions / Vision Zero (Cold): Used to map historically dangerous intersections and pedestrian hazard zones.
+
+311 Service Requests from 2010 to Present (Hot/Cold): Filtered for active complaints to detect immediate block-level hazards like fallen scaffolding, downed trees, or air quality complaints.
+
+MTA Real-Time Data Feeds (Hot): GTFS feeds used to check subway station delays, outages, and overcrowding.
+
+FDNY / NYPD Active Incident Dispatch Data (Hot): Used to ensure the user is not walking into an active multi-alarm fire or police perimeter.
