@@ -1,4 +1,4 @@
-# Nemo Assistant
+# Meta Nemo
 
 An edge-native AI wearable system that connects Meta Ray-Ban Smart Glasses to a smartphone relay, which tunnels over a Tailscale mesh VPN to an NVIDIA DGX Spark (GB10 Grace Blackwell) running all AI inference locally. The system provides real-time spoken alerts about food safety, street conditions, transit disruptions, pedestrian hazards, filming locations, architecture, and neighborhood context by combining continuous voice transcription, intermittent camera vision, and live NYC Open Data.
 
