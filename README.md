@@ -9,7 +9,7 @@ No paid cloud compute. No third-party AI APIs. All inference runs on-device.
 ## Architecture Overview
 
 ```
-Meta Ray-Ban Glasses (Bluetooth audio)
+Meta Ray-Ban Glasses (visual or audio)
         |
         v
 iOS Application (NemoAssistant)
