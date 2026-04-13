@@ -3,6 +3,7 @@ import SwiftUI
 struct ContentView: View {
   @StateObject private var viewModel = NemoViewModel()
   @Environment(\.scenePhase) private var scenePhase
+  @State private var showingSettings = false
 
   var body: some View {
     ZStack {
@@ -15,28 +16,45 @@ struct ContentView: View {
       .ignoresSafeArea()
 
       VStack(spacing: 0) {
-        // Meta Glasses connect button (placeholder for future implementation)
-        Button(action: {
-          // TODO: Future — BLE pairing with Meta glasses
-        }) {
-          HStack(spacing: 8) {
-            Image(systemName: "glasses")
-              .font(.system(size: 14, weight: .medium))
-            Text("Connect to Meta Glasses")
-              .font(.system(size: 13, weight: .semibold))
-          }
-          .foregroundColor(.white.opacity(0.9))
-          .padding(.horizontal, 16)
-          .padding(.vertical, 10)
-          .background(
-            RoundedRectangle(cornerRadius: 20)
-              .fill(Color.white.opacity(0.1))
-              .overlay(
+        HStack {
+            // Meta Glasses connect button
+            Button(action: {
+              viewModel.connectToGlasses()
+            }) {
+              HStack(spacing: 8) {
+                Image(systemName: "glasses")
+                  .font(.system(size: 14, weight: .medium))
+                  .foregroundColor(viewModel.isGlassesConnected ? .green : .white.opacity(0.9))
+                Text(viewModel.isGlassesConnected ? "Glasses Connected" : "Connect to Meta Glasses")
+                  .font(.system(size: 13, weight: .semibold))
+                  .foregroundColor(viewModel.isGlassesConnected ? .green : .white.opacity(0.9))
+              }
+              .padding(.horizontal, 16)
+              .padding(.vertical, 10)
+              .background(
                 RoundedRectangle(cornerRadius: 20)
-                  .stroke(Color.white.opacity(0.2), lineWidth: 1)
+                  .fill(Color.white.opacity(0.1))
+                  .overlay(
+                    RoundedRectangle(cornerRadius: 20)
+                      .stroke(viewModel.isGlassesConnected ? Color.green.opacity(0.5) : Color.white.opacity(0.2), lineWidth: 1)
+                  )
               )
-          )
+            }
+            
+            Spacer()
+            
+            // Settings button
+            Button(action: {
+                showingSettings = true
+            }) {
+                Image(systemName: "slider.horizontal.3")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(.white.opacity(0.9))
+                    .padding(10)
+                    .background(Circle().fill(Color.white.opacity(0.1)))
+            }
         }
+        .padding(.horizontal, 20)
         .padding(.top, 16)
 
         Spacer()
@@ -138,6 +156,9 @@ struct ContentView: View {
       default:
         break
       }
+    }
+    .sheet(isPresented: $showingSettings) {
+        AlertPreferencesView()
     }
   }
 

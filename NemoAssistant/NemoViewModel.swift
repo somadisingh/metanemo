@@ -16,6 +16,7 @@ class NemoViewModel: ObservableObject {
   @Published var userText: String = ""
   @Published var aiText: String = ""
   @Published var isAppForeground = true
+  @Published var isGlassesConnected = false
 
   private let audio = AudioManager.shared
   private let location = LocationManager.shared
@@ -72,6 +73,11 @@ class NemoViewModel: ObservableObject {
       self.accumulatedAIText = ""
       self.location.requestHighAccuracy()
     }
+    
+    // Bind audio manager's glasses state to view model
+    audio.$isGlassesConnected
+      .receive(on: DispatchQueue.main)
+      .assign(to: &$isGlassesConnected)
 
     // Live speech text while user is speaking → show as subtitles
     audio.onLiveSpeechText = { [weak self] text in
@@ -165,6 +171,10 @@ class NemoViewModel: ObservableObject {
     utterance.volume = 1.0
     NSLog("[Nemo] Speaking: %@", text)
     speechSynthesizer.speak(utterance)
+  }
+  
+  func connectToGlasses() {
+    audio.connectToGlasses()
   }
 }
 

@@ -8,6 +8,7 @@ class AudioManager: ObservableObject {
 
   @Published var isListening = false
   @Published var isWakeWordDetected = false
+  @Published var isGlassesConnected = false
 
   var onPromptReady: ((String) -> Void)?
   var onWakeWordDetected: (() -> Void)?
@@ -35,6 +36,70 @@ class AudioManager: ObservableObject {
   func setup() {
     SFSpeechRecognizer.requestAuthorization { status in
       NSLog("[Audio] Speech recognition auth: %d", status.rawValue)
+    }
+    
+    NotificationCenter.default.addObserver(
+        self,
+        selector: #selector(handleRouteChange),
+        name: AVAudioSession.routeChangeNotification,
+        object: nil
+    )
+  }
+
+  @objc private func handleRouteChange(notification: Notification) {
+    guard let userInfo = notification.userInfo,
+          let reasonValue = userInfo[AVAudioSessionRouteChangeReasonKey] as? UInt,
+          let reason = AVAudioSession.RouteChangeReason(rawValue: reasonValue) else {
+        return
+    }
+
+    switch reason {
+    case .newDeviceAvailable:
+        // A new device (like Meta Glasses) was connected
+        let session = AVAudioSession.sharedInstance()
+        if session.currentRoute.outputs.contains(where: { $0.portType == .bluetoothHFP }) || 
+           session.currentRoute.inputs.contains(where: { $0.portType == .bluetoothHFP }) {
+            DispatchQueue.main.async {
+                self.isGlassesConnected = true
+            }
+        }
+    case .oldDeviceUnavailable:
+        // A device (like Meta Glasses) was disconnected
+        let session = AVAudioSession.sharedInstance()
+        if !session.currentRoute.outputs.contains(where: { $0.portType == .bluetoothHFP }) && 
+           !session.currentRoute.inputs.contains(where: { $0.portType == .bluetoothHFP }) {
+            DispatchQueue.main.async {
+                self.isGlassesConnected = false
+            }
+        }
+    default:
+        break
+    }
+  }
+
+  // MARK: - Meta Glasses Connection
+
+  func connectToGlasses() {
+    let session = AVAudioSession.sharedInstance()
+    do {
+      try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetooth, .defaultToSpeaker])
+      
+      // Look for the Meta Glasses (Bluetooth HFP)
+      if let bluetoothInput = session.availableInputs?.first(where: { $0.portType == .bluetoothHFP }) {
+          try session.setPreferredInput(bluetoothInput)
+          NSLog("[Audio] Connected to Bluetooth HFP input")
+          
+          // Let bluetooth take over output
+          try session.overrideOutputAudioPort(.none)
+          
+          DispatchQueue.main.async {
+              self.isGlassesConnected = true
+          }
+      } else {
+          NSLog("[Audio] Bluetooth HFP not found in available inputs")
+      }
+    } catch {
+      NSLog("[Audio] Failed to route to glasses: %@", error.localizedDescription)
     }
   }
 

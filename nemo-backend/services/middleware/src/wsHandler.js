@@ -41,7 +41,14 @@ function getState(clientId) {
       pendingTranscript: '',
       isProcessing: false,
       setupDone: false,
-      hasReceivedGPS: false
+      hasReceivedGPS: false,
+      alertPreferences: {
+          transitEnabled: true,
+          warnings311Enabled: true,
+          collisionHotspotsEnabled: true,
+          healthViolationsEnabled: true,
+          culturalEnabled: true
+      }
     });
   }
   return clientState.get(clientId);
@@ -322,6 +329,16 @@ export async function handleMessage(ws, message, context) {
       state.latitude = input.location.latitude || state.latitude;
       state.longitude = input.location.longitude || state.longitude;
       state.hasReceivedGPS = true;
+    }
+
+    // GPS location ping from ProactiveAlerts
+    if (input.locationPing) {
+      state.latitude = input.locationPing.latitude || state.latitude;
+      state.longitude = input.locationPing.longitude || state.longitude;
+      state.hasReceivedGPS = true;
+      if (input.locationPing.alertPreferences) {
+          state.alertPreferences = { ...state.alertPreferences, ...input.locationPing.alertPreferences };
+      }
     }
     return;
   }

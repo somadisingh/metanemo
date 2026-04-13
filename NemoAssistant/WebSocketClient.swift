@@ -157,9 +157,20 @@ class WebSocketClient: ObservableObject {
   /// Send a dedicated location ping for proactive alerts (every 2 min)
   func sendLocationPing(lat: Double, lon: Double) {
     guard isReady else { return }
+    let prefs = AlertPreferencesManager.shared.preferences
     let json: [String: Any] = [
       "realtimeInput": [
-        "locationPing": ["latitude": lat, "longitude": lon]
+        "locationPing": [
+           "latitude": lat, 
+           "longitude": lon,
+           "alertPreferences": [
+               "transitEnabled": prefs.transitEnabled,
+               "warnings311Enabled": prefs.warnings311Enabled,
+               "collisionHotspotsEnabled": prefs.collisionHotspotsEnabled,
+               "healthViolationsEnabled": prefs.healthViolationsEnabled,
+               "culturalEnabled": prefs.culturalEnabled
+           ]
+        ]
       ]
     ]
     sendJSON(json)
