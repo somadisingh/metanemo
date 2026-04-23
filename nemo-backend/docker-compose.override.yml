@@ -1,16 +1,4 @@
 services:
-  nemotron-nim:
-    image: busybox:latest
-    container_name: metaglass-nemotron
-    networks: [metaglass-net]
-    command: ["sh", "-c", "echo healthy > /tmp/health && httpd -f -p 8000 -h /tmp & while true; do sleep 3600; done"]
-    healthcheck:
-      test: ["CMD", "wget", "-q", "-O-", "http://localhost:8000/health"]
-      interval: 5s
-      timeout: 3s
-      retries: 3
-      start_period: 2s
-
   riva-asr:
     image: busybox:latest
     container_name: metaglass-riva-asr
@@ -41,9 +29,10 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
-      NEMOTRON_NIM_HOST: host.docker.internal
-      NEMOTRON_NIM_PORT: "8000"
-      NEMOTRON_MODEL_NAME: nemotron-3-nano
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_API_BASE_URL: ${LLM_API_BASE_URL:-https://integrate.api.nvidia.com/v1}
+      LLM_MODEL_NAME: ${LLM_MODEL_NAME:-nvidia/llama-3.1-nemotron-ultra-253b-v1}
+      LLM_TIMEOUT_SECONDS: "30"
       NEMOCLAW_CONFIDENCE_THRESHOLD: "0.7"
       POSTGRES_HOST: postgres-postgis
       POSTGRES_PORT: "5432"

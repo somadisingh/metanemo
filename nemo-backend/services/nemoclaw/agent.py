@@ -38,13 +38,13 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="NemoClaw Agent", version="1.0.0")
 
-# Nemotron NIM configuration
-NEMOTRON_HOST = os.environ.get('NEMOTRON_NIM_HOST', 'nemotron-nim')
-NEMOTRON_PORT = os.environ.get('NEMOTRON_NIM_PORT', '8000')
-NEMOTRON_MODEL = os.environ.get('NEMOTRON_MODEL_NAME', 'nemotron-3-nano-30b-a3b')
+# Hosted LLM API configuration
+LLM_API_KEY = os.environ.get('LLM_API_KEY', '')
+LLM_API_BASE_URL = os.environ.get('LLM_API_BASE_URL', 'https://integrate.api.nvidia.com/v1')
+LLM_MODEL_NAME = os.environ.get('LLM_MODEL_NAME', 'nvidia/llama-3.1-nemotron-ultra-253b-v1')
+LLM_TIMEOUT_SECONDS = int(os.environ.get('LLM_TIMEOUT_SECONDS', '30'))
+LLM_ENDPOINT = f"{LLM_API_BASE_URL}/chat/completions"
 CONFIDENCE_THRESHOLD = float(os.environ.get('NEMOCLAW_CONFIDENCE_THRESHOLD', '0.7'))
-
-NEMOTRON_ENDPOINT = f"http://{NEMOTRON_HOST}:{NEMOTRON_PORT}/v1/chat/completions"
 
 # Ollama fallback configuration
 OLLAMA_HOST = os.environ.get('OLLAMA_HOST', 'host.docker.internal')
@@ -141,6 +141,11 @@ def validate_environment() -> bool:
     required = ['POSTGRES_HOST', 'POSTGRES_USER', 'POSTGRES_PASSWORD', 'POSTGRES_DB']
     missing = [var for var in required if not os.environ.get(var)]
     
+    api_key = os.environ.get('LLM_API_KEY', '').strip()
+    if not api_key:
+        logger.fatal("LLM_API_KEY environment variable is not set or empty")
+        missing.append('LLM_API_KEY')
+    
     if missing:
         logger.fatal(f"Missing required environment variables: {missing}")
         return False
@@ -178,53 +183,67 @@ def call_ollama(messages: list, max_tokens: int = 150, temperature: float = 0.7)
         return None
 
 
-def call_nemotron(
+def call_llm_api(
     messages: list,
     max_tokens: int = 150,
     temperature: float = 0.7
 ) -> Optional[str]:
     """
-    Call Nemotron NIM for inference.
-    
+    Call hosted LLM API for inference.
+
     Args:
         messages: Chat messages in OpenAI format
         max_tokens: Maximum response tokens
         temperature: Sampling temperature
-        
+
     Returns:
-        Response text or None on error
+        Response text string on success, None on failure
     """
     try:
         response = requests.post(
-            NEMOTRON_ENDPOINT,
+            LLM_ENDPOINT,
+            headers={
+                "Authorization": f"Bearer {LLM_API_KEY}",
+                "Content-Type": "application/json",
+            },
             json={
-                "model": NEMOTRON_MODEL,
+                "model": LLM_MODEL_NAME,
                 "messages": messages,
                 "max_tokens": max_tokens,
                 "temperature": temperature,
             },
-            timeout=60
+            timeout=LLM_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
-        
+
         data = response.json()
         return data['choices'][0]['message']['content']
-        
+
+    except requests.HTTPError as e:
+        status = e.response.status_code if e.response is not None else None
+        body = (e.response.text[:200] if e.response is not None else str(e))
+        if status in (401, 403):
+            logger.error(f"Authentication failure for LLM API: {status}")
+        elif status == 429:
+            logger.warning("Rate limited by LLM API")
+        else:
+            logger.error(f"LLM API error: status={status} body={body}")
+        return None
     except requests.RequestException as e:
-        logger.error(f"Nemotron API error: {e}")
+        logger.error(f"LLM API request error: {e}")
         return None
 
 
 def call_llm(messages: list, max_tokens: int = 150, temperature: float = 0.7) -> Optional[str]:
     """
-    Call LLM for inference - tries Nemotron first, falls back to Ollama.
+    Call LLM for inference - tries hosted API first, falls back to Ollama.
     """
-    # Try Nemotron first (primary)
-    result = call_nemotron(messages, max_tokens, temperature)
+    # Try hosted API first (primary)
+    result = call_llm_api(messages, max_tokens, temperature)
     if result:
         return result
     
-    logger.warning("Nemotron failed, falling back to Ollama...")
+    logger.warning("Hosted LLM API failed, falling back to Ollama...")
     
     # Fallback to Ollama
     if USE_OLLAMA:
@@ -232,7 +251,7 @@ def call_llm(messages: list, max_tokens: int = 150, temperature: float = 0.7) ->
         if result:
             return result
     
-    logger.error("Both Nemotron and Ollama failed")
+    logger.error("All LLM providers failed")
     return None
 
 
@@ -256,7 +275,7 @@ def classify_intent(text: str, image_b64: Optional[str] = None) -> Dict[str, Any
     if image_b64:
         messages[1]["content"] = f"[User is looking at something] {text or 'What is this?'}"
     
-    response = call_ollama(messages, max_tokens=80, temperature=0.1) or call_nemotron(messages, max_tokens=80, temperature=0.1)
+    response = call_llm_api(messages, max_tokens=80, temperature=0.1) or (call_ollama(messages, max_tokens=80, temperature=0.1) if USE_OLLAMA else None)
     
     if not response:
         # Default to general safety check on API failure
@@ -506,12 +525,12 @@ def synthesize_response(tool_result: Any, intent: str, user_text: str) -> str:
     if _intent_type == 'subway_station':
         return context
 
-    # Step 1: Nemotron summarizes the data freely (thinking is fine)
+    # Step 1: Hosted API summarizes the data freely (thinking is fine)
     nemotron_messages = [
         {"role": "system", "content": _sys},
         {"role": "user", "content": f"User asked: {user_text}\n\nData: {context}"}
     ]
-    nemotron_output = call_nemotron(nemotron_messages, max_tokens=600, temperature=0.3)
+    nemotron_output = call_llm_api(nemotron_messages, max_tokens=600, temperature=0.3)
 
     if not nemotron_output:
         return call_ollama(
@@ -520,7 +539,7 @@ def synthesize_response(tool_result: Any, intent: str, user_text: str) -> str:
         ) or context
 
     # Step 2: Ollama strips the thinking, returns only the factual answer
-    # Pass BOTH the raw data AND Nemotron's output so Ollama knows what the facts are
+    # Pass BOTH the raw data AND the API's output so Ollama knows what the facts are
     ollama_messages = [
         {
             "role": "system",
@@ -533,6 +552,10 @@ def synthesize_response(tool_result: Any, intent: str, user_text: str) -> str:
     ]
 
     summary = call_ollama(ollama_messages, max_tokens=120, temperature=0.1)
+
+    if not summary or len(summary.strip()) <= 10:
+        # Fallback: use hosted API for summarization when Ollama unavailable
+        summary = call_llm_api(ollama_messages, max_tokens=120, temperature=0.1)
 
     if summary and len(summary.strip()) > 10:
         return summary.strip()

@@ -159,11 +159,11 @@ class TestResponseSynthesis:
 class TestAgentIntegration:
     """Integration tests with mocked dependencies."""
     
-    @patch('agent.call_nemotron')
+    @patch('agent.call_llm_api')
     @patch('agent.cold_query')
-    def test_food_query_calls_cold_query(self, mock_cold, mock_nemotron):
+    def test_food_query_calls_cold_query(self, mock_cold, mock_llm_api):
         """Food intent should invoke cold_query tool."""
-        mock_nemotron.return_value = '{"intent": "food", "confidence": 0.9, "tool": "cold_query"}'
+        mock_llm_api.return_value = '{"intent": "food", "confidence": 0.9, "tool": "cold_query"}'
         mock_cold.return_value = []
         
         # Simulate the flow
@@ -174,11 +174,11 @@ class TestAgentIntegration:
         
         mock_cold.assert_called_once()
     
-    @patch('agent.call_nemotron')
+    @patch('agent.call_llm_api')
     @patch('agent.hot_query')
-    def test_transit_query_calls_hot_query(self, mock_hot, mock_nemotron):
+    def test_transit_query_calls_hot_query(self, mock_hot, mock_llm_api):
         """Transit intent should invoke hot_query tool."""
-        mock_nemotron.return_value = '{"intent": "transit", "confidence": 0.85, "tool": "hot_query"}'
+        mock_llm_api.return_value = '{"intent": "transit", "confidence": 0.85, "tool": "hot_query"}'
         
         from tools.types import HotQueryResult
         mock_hot.return_value = HotQueryResult(results=[], partial=False)

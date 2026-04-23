@@ -1,4 +1,4 @@
-# Development compose with local Nemotron inference
+# Development compose with hosted LLM API
 # Use: docker compose -f docker-compose.dev.yml up -d
 
 networks:
@@ -46,34 +46,16 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-metaglass}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-metaglass2026}
       POSTGRES_DB: ${POSTGRES_DB:-metaglass}
-      NEMOTRON_NIM_HOST: metaglass-nemotron
-      NEMOTRON_NIM_PORT: 8000
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_API_BASE_URL: ${LLM_API_BASE_URL:-https://integrate.api.nvidia.com/v1}
+      LLM_MODEL_NAME: ${LLM_MODEL_NAME:-nvidia/llama-3.1-nemotron-ultra-253b-v1}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-30}
       NEMOCLAW_CONFIDENCE_THRESHOLD: 0.7
       SOCRATA_APP_TOKEN: ${SOCRATA_APP_TOKEN:-}
       MTA_API_KEY: ${MTA_API_KEY:-}
-      # Ollama fallback (running on host when Nemotron unavailable)
-      USE_OLLAMA: "true"  # Enable as fallback
+      # Ollama fallback (running on host when hosted API unavailable)
+      USE_OLLAMA: "true"
       OLLAMA_HOST: host.docker.internal
       OLLAMA_PORT: 11434
       OLLAMA_MODEL: llama3.2:3b
-    restart: unless-stopped
-
-  nemotron-inference:
-    build: ./services/nemotron-inference
-    container_name: metaglass-nemotron
-    networks: [metaglass-net]
-    ports:
-      - "8000:8000"
-    volumes:
-      - ${HOME}/models/llm:/models:ro
-    environment:
-      MODEL_PATH: /models/nvidia--NVIDIA-Nemotron-3-Nano-30B-A3B-NVFP4
-      MAX_NEW_TOKENS: 256
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
     restart: unless-stopped

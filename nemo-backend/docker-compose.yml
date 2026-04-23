@@ -6,7 +6,6 @@ networks:
 
 volumes:
   pgdata:
-  nim-model-cache:
   riva-model-cache:
 
 services:
@@ -70,42 +69,25 @@ services:
     restart: unless-stopped
 
 
-  nemotron-nim:
-    image: nvcr.io/nim/nvidia/nemotron-3-nano-30b-a3b:latest
-    container_name: metaglass-nemotron
-    networks: [metaglass-net]
-    volumes:
-      - nim-model-cache:/opt/nim/.cache
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8000/v1/health/ready"]
-      interval: 20s
-      timeout: 10s
-      retries: 10
-    restart: unless-stopped
-
   nemoclaw:
     build: ./services/nemoclaw
     container_name: metaglass-nemoclaw
     networks: [metaglass-net]
     depends_on:
-      nemotron-nim:
-        condition: service_healthy
       postgres-postgis:
         condition: service_healthy
       user-profile:
         condition: service_healthy
     environment:
-      NEMOTRON_NIM_HOST: ${NEMOTRON_NIM_HOST}
-      NEMOTRON_NIM_PORT: ${NEMOTRON_NIM_PORT}
-      NEMOTRON_MODEL_NAME: ${NEMOTRON_MODEL_NAME}
+      LLM_API_KEY: ${LLM_API_KEY}
+      LLM_API_BASE_URL: ${LLM_API_BASE_URL}
+      LLM_MODEL_NAME: ${LLM_MODEL_NAME}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS}
       NEMOCLAW_CONFIDENCE_THRESHOLD: ${NEMOCLAW_CONFIDENCE_THRESHOLD}
+      USE_OLLAMA: ${USE_OLLAMA:-true}
+      OLLAMA_HOST: ${OLLAMA_HOST:-host.docker.internal}
+      OLLAMA_PORT: ${OLLAMA_PORT:-11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:3b}
       POSTGRES_HOST: ${POSTGRES_HOST}
       POSTGRES_PORT: ${POSTGRES_PORT}
       POSTGRES_USER: ${POSTGRES_USER}
