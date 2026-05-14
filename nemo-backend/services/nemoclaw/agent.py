@@ -52,6 +52,7 @@ OLLAMA_PORT = os.environ.get('OLLAMA_PORT', '11434')
 OLLAMA_MODEL = os.environ.get('OLLAMA_MODEL', 'llama3.2:3b')
 OLLAMA_ENDPOINT = f"http://{OLLAMA_HOST}:{OLLAMA_PORT}/api/chat"
 USE_OLLAMA = os.environ.get('USE_OLLAMA', 'true').lower() == 'true'
+SOCRATA_311_ENDPOINT = os.environ.get('SOCRATA_311_ENDPOINT', 'https://data.cityofnewyork.us/resource/erm2-nwe9.json')
 
 # User-profile service endpoint
 USER_PROFILE_URL = os.environ.get('USER_PROFILE_URL', 'http://user-profile:8081')
@@ -94,6 +95,28 @@ def _score_alert(alert_type: str, latitude: float, longitude: float,
     return result
 
 
+def _fetch_latest_citywide_nypd_alert() -> Optional[dict]:
+    """Fetch the single latest citywide NYPD-related 311 alert."""
+    app_token = os.environ.get('SOCRATA_APP_TOKEN', '')
+    headers = {'X-App-Token': app_token} if app_token else {}
+    params = {
+        '$limit': 1,
+        '$order': 'created_date DESC',
+        '$where': "created_date IS NOT NULL AND (upper(agency) = 'NYPD' OR upper(agency_name) like '%POLICE%')",
+        '$select': 'created_date,complaint_type,descriptor,status,borough,incident_zip,agency,agency_name',
+    }
+    try:
+        response = requests.get(SOCRATA_311_ENDPOINT, headers=headers, params=params, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        if not data:
+            return None
+        return data[0]
+    except Exception as e:
+        logger.error(f"Citywide NYPD alert fetch failed: {e}")
+        return None
+
+
 # Request/Response models
 class AgentRequest(BaseModel):
     text: Optional[str] = None
@@ -120,6 +143,7 @@ food/restaurant/eat/grade/dining/open -> {"intent":"food","confidence":0.95,"too
 accessible/wheelchair/ada/disability/ramp/elevator/accessible subway -> {"intent":"accessibility","confidence":0.95,"tool":"accessibility_query","clarification_needed":false}
 nearest subway/closest subway station/subway station near me/what subway is near/which station/subway entrance -> {"intent":"subway_station","confidence":0.95,"tool":"subway_query","clarification_needed":false}
 transit/subway/mta/bus/delay/train -> {"intent":"transit","confidence":0.95,"tool":"hot_query","clarification_needed":false}
+nypd alerts/police alerts/latest nypd incident/crime alerts -> {"intent":"nypd_alerts","confidence":0.95,"tool":"hot_query","clarification_needed":false}
 noise/311/construction/street/hazard -> {"intent":"safety","confidence":0.95,"tool":"hot_query","clarification_needed":false}
 crash/collision/accident/dangerous intersection/pedestrian safety -> {"intent":"collision","confidence":0.95,"tool":"collision_query","clarification_needed":false}
 heat/hot/cooling center/temperature/heatwave -> {"intent":"heat","confidence":0.95,"tool":"heat_query","clarification_needed":false}
@@ -506,6 +530,19 @@ def synthesize_response(tool_result: Any, intent: str, user_text: str) -> str:
     # Pick system prompt and Ollama instruction based on intent type
     _intent_type = intent or "safety"
     if _intent_type == "nypd_alerts":
+        if isinstance(tool_result, dict) and tool_result.get('type') == 'nypd_citywide_latest':
+            latest = tool_result.get('alert')
+            if latest:
+                complaint = latest.get('complaint_type') or 'Unknown issue'
+                descriptor = latest.get('descriptor') or ''
+                status = latest.get('status') or 'Unknown'
+                borough = latest.get('borough') or latest.get('incident_zip') or 'NYC'
+                created = str(latest.get('created_date') or '').replace('T', ' ').replace('Z', '').strip()
+                details = f"{complaint}: {descriptor}" if descriptor else complaint
+                when = f" at {created}" if created else ""
+                return f"Latest citywide NYPD alert: {details} in {borough}, status {status}{when}."
+            return "No latest citywide NYPD alerts found."
+
         hot_payload = tool_result.get('result') if isinstance(tool_result, dict) else tool_result
         if isinstance(hot_payload, HotQueryResult):
             police_related = []
@@ -820,6 +857,26 @@ async def process_request(request: AgentRequest):
                 hazards = [asdict(r) for r in tool_result if r.hazard]
             
         elif tool == 'hot_query':
+            if intent == 'nypd_alerts':
+                latest_nypd = _fetch_latest_citywide_nypd_alert()
+                tool_result = {
+                    'type': 'nypd_citywide_latest',
+                    'alert': latest_nypd,
+                }
+                hazards = []
+                # Skip nearby hot query for NYPD intent; this is citywide latest-only by design.
+                response_text = synthesize_response(tool_result, intent, request.text or "")
+                _post_user_profile('/signals', {'alert_type': 'safety', 'signal': 'positive'})
+                _post_user_profile('/interests', {'topic': 'safety', 'delta': 0.05})
+                return AgentResponseModel(
+                    text=response_text,
+                    tool_used='hot_query',
+                    confidence=confidence,
+                    requires_clarification=False,
+                    hazards=[],
+                    qol_score=0
+                )
+
             hot_result = hot_query(request.latitude, request.longitude)
             # Score and record transit patterns
             filtered_results = []
