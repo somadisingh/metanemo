@@ -40,6 +40,24 @@ docker-compose up -d
 docker-compose logs -f middleware
 ```
 
+## One-command local startup
+
+```bash
+cd "/Users/somaditya/Desktop/metanemo/nemo-backend"
+docker compose up -d --build
+```
+
+This one command starts backend + data pipeline + browser frontend.
+
+Health check URLs:
+- Frontend UI: `http://localhost:5174`
+- Middleware health: `http://localhost:8080/health`
+- Middleware metrics: `http://localhost:8080/metrics`
+- NemoClaw health: `http://localhost:8090/health`
+- NemoClaw docs: `http://localhost:8090/docs`
+- User-profile health: `http://localhost:8081/health`
+- User-profile docs: `http://localhost:8081/docs`
+
 ## Services
 
 | Service | Port | Description |

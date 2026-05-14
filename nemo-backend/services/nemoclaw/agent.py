@@ -316,28 +316,36 @@ def synthesize_response(tool_result: Any, intent: str, user_text: str) -> str:
             )
         else:
             context = "No significant hazards detected nearby."
-    elif isinstance(tool_result, list) and tool_result:
+    elif isinstance(tool_result, list):
         # Could be ColdQueryResult list or CollisionResult list
-        if hasattr(tool_result[0], 'hazard'):
-            # Restaurant results - include all nearby places (not only hazardous)
-            lines = []
-            for r in tool_result[:10]:
-                cuisine = getattr(r, 'cuisine_description', None) or 'Various'
-                grade = r.grade or 'N/A'
-                score = r.score if r.score is not None else 'N/A'
-                lines.append(f"- {r.name} ({cuisine}), grade={grade}, score={score}, {r.distance_meters:.0f}m")
-            hazard_count = sum(1 for r in tool_result if r.hazard)
-            context = (
-                f"Nearest restaurants across cuisines ({len(tool_result)} found, {hazard_count} with health concerns):\n"
-                + "\n".join(lines)
-            )
-        elif hasattr(tool_result[0], 'severity_score'):
-            # Collision results
-            context = f"Found {len(tool_result)} pedestrian collision hotspots nearby:\n" + "\n".join(
-                [f"- {r.location}, {r.crash_date}, {r.pedestrians_injured} injured, {r.pedestrians_killed} killed" for r in tool_result[:5]]
-            )
+        if tool_result:
+            if hasattr(tool_result[0], 'hazard'):
+                # Restaurant results - include all nearby places (not only hazardous)
+                lines = []
+                for r in tool_result[:10]:
+                    cuisine = getattr(r, 'cuisine_description', None) or 'Various'
+                    grade = r.grade or 'N/A'
+                    score = r.score if r.score is not None else 'N/A'
+                    lines.append(f"- {r.name} ({cuisine}), grade={grade}, score={score}, {r.distance_meters:.0f}m")
+                hazard_count = sum(1 for r in tool_result if r.hazard)
+                context = (
+                    f"Nearest restaurants across cuisines ({len(tool_result)} found, {hazard_count} with health concerns):\n"
+                    + "\n".join(lines)
+                )
+            elif hasattr(tool_result[0], 'severity_score'):
+                # Collision results
+                context = f"Found {len(tool_result)} pedestrian collision hotspots nearby:\n" + "\n".join(
+                    [f"- {r.location}, {r.crash_date}, {r.pedestrians_injured} injured, {r.pedestrians_killed} killed" for r in tool_result[:5]]
+                )
+            else:
+                context = f"Found {len(tool_result)} results nearby."
         else:
-            context = f"Found {len(tool_result)} results nearby."
+            if intent in ('food', 'cuisine'):
+                context = "No restaurants found nearby."
+            elif intent == 'collision':
+                context = "No collision hotspots found nearby."
+            else:
+                context = "No results found nearby."
     elif isinstance(tool_result, dict) and 'type' not in tool_result:
         if 'subway_entrances' in tool_result:
             # Accessibility results
@@ -419,6 +427,17 @@ def synthesize_response(tool_result: Any, intent: str, user_text: str) -> str:
             context = f"Famous buildings and architecture nearby ({len(landmarks)} found):\n" + "\n".join(lines)
         else:
             context = "No notable buildings or architecture found nearby."
+
+    elif isinstance(tool_result, dict) and tool_result.get('type') == 'heat':
+        heat = tool_result.get('result') or {}
+        if heat.get('hvi_score'):
+            context = (
+                f"Heat vulnerability for {heat.get('neighborhood', 'this area')}: "
+                f"HVI {heat.get('hvi_score')}/5, surface temp {heat.get('surface_temp')}F, "
+                f"green space {heat.get('green_space_pct')}%."
+            )
+        else:
+            context = "No heat vulnerability data found nearby."
 
     elif isinstance(tool_result, dict) and tool_result.get('type') == 'film':
         # Named productions from Wikidata + active permits from NYC Open Data
@@ -507,7 +526,7 @@ def synthesize_response(tool_result: Any, intent: str, user_text: str) -> str:
         _ollama = "State the raw facts from the DATA section in 2-3 plain spoken sentences. Report only what the data says. No bullet points, no emoji, no markdown, no advice."
 
     # For deterministic list-style intents, return directly (no LLM rewriting).
-    if _intent_type in ('subway_station', 'food', 'cuisine', 'cultural', 'architecture'):
+    if _intent_type in ('subway_station', 'food', 'cuisine', 'cultural', 'architecture', 'heat'):
         return context
 
     # Step 1: Nemotron summarizes the data freely (thinking is fine)
@@ -610,7 +629,7 @@ async def process_request(request: AgentRequest):
     _CUISINE_KW = {'italian','chinese','mexican','japanese','indian','thai','french','greek',
                    'korean','sushi','ramen','pizza','burger','burgers','american','caribbean',
                    'spanish','vietnamese','turkish','mediterranean','ethiopian','peruvian','brazilian'}
-    _RESTAURANT_KW = {'restaurant', 'restaurants', 'food', 'eat', 'dining', 'cafe', 'cafes'}
+    _RESTAURANT_KW = {'restaurant', 'restaurants', 'food', 'dining', 'cafe', 'cafes'}
     _POI_KW = {'site of interest', 'sites of interest', 'point of interest', 'points of interest',
                'things to see', 'attraction', 'attractions', 'monument', 'monuments', 'landmark', 'landmarks'}
     _ARCH_KW = {'architecture', 'architectural', 'building', 'buildings', 'skyscraper', 'historic building'}
@@ -787,7 +806,7 @@ async def process_request(request: AgentRequest):
 
         elif tool == 'heat_query':
             result = query_heat_vulnerability(request.latitude, request.longitude)
-            tool_result = result if result else {}
+            tool_result = {'type': 'heat', 'result': result if result else {}}
             hazards = []
 
         elif tool == 'cultural_query':

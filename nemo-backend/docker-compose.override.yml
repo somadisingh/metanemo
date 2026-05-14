@@ -1,4 +1,18 @@
 services:
+  browser-test-client:
+    build:
+      context: ./browser-test-client-react
+      dockerfile: Dockerfile
+    container_name: metaglass-browser-test-client
+    networks: [metaglass-net]
+    ports:
+      - "5174:5174"
+    depends_on:
+      middleware:
+        condition: service_started
+      nemoclaw:
+        condition: service_started
+
   data-pipeline:
     build:
       context: ./data
@@ -41,7 +55,10 @@ services:
     container_name: metaglass-nemotron
     networks: [metaglass-net]
     command: ["sh", "-c", "echo healthy > /tmp/health && httpd -f -p 8000 -h /tmp & while true; do sleep 3600; done"]
-    deploy: {}
+    deploy:
+      resources:
+        reservations:
+          devices: []
     healthcheck:
       test: ["CMD", "wget", "-q", "-O-", "http://localhost:8000/health"]
       interval: 5s
@@ -54,7 +71,10 @@ services:
     container_name: metaglass-riva-asr
     networks: [metaglass-net]
     command: ["sh", "-c", "while true; do sleep 3600; done"]
-    deploy: {}
+    deploy:
+      resources:
+        reservations:
+          devices: []
     healthcheck:
       test: ["CMD", "true"]
       interval: 5s
@@ -67,7 +87,10 @@ services:
     container_name: metaglass-riva-tts
     networks: [metaglass-net]
     command: ["sh", "-c", "while true; do sleep 3600; done"]
-    deploy: {}
+    deploy:
+      resources:
+        reservations:
+          devices: []
     healthcheck:
       test: ["CMD", "true"]
       interval: 5s
