@@ -205,23 +205,22 @@ def run_film_permits_ingestion(days_back: int = 30) -> dict:
     """
     
     try:
-        conn = get_connection()
-        with conn.cursor() as cur:
-            # Format records with geometry
-            values = [
-                (r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8],
-                 f"SRID=4326;POINT({r[9]} {r[10]})")
-                for r in records
-            ]
-            
-            execute_values(
-                cur, sql, values,
-                template="(%s, %s, %s, %s, %s, %s, %s, %s, %s, ST_GeomFromEWKT(%s))"
-            )
-            
-            conn.commit()
-        conn.close()
-        
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                # Format records with geometry
+                values = [
+                    (r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8],
+                     f"SRID=4326;POINT({r[9]} {r[10]})")
+                    for r in records
+                ]
+
+                execute_values(
+                    cur, sql, values,
+                    template="(%s, %s, %s, %s, %s, %s, %s, %s, %s, ST_GeomFromEWKT(%s))"
+                )
+
+                conn.commit()
+
         logger.info(f"Upserted {len(records)} film permits")
         return {'success': True, 'upserted_count': len(records)}
         

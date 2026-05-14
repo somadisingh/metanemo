@@ -55,28 +55,38 @@ def cold_query(
         RuntimeError: On database exception (includes input params per Property 16)
     """
     sql = """
-        SELECT 
-            dba as name,
-            CONCAT(building, ' ', street, ', ', zipcode) as address,
-            grade,
-            score,
-            (grade = 'C' OR score > 28) AS hazard,
-            ST_Distance(
+        WITH ranked AS (
+            SELECT 
+                dba as name,
+                CONCAT(building, ' ', street, ', ', zipcode) as address,
+                grade,
+                score,
+                cuisine_description,
+                (grade = 'C' OR score > 28) AS hazard,
+                ST_Distance(
+                    geom::geography,
+                    ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography
+                ) as distance_meters,
+                ROW_NUMBER() OVER (
+                    PARTITION BY COALESCE(camis, dba)
+                    ORDER BY inspection_date DESC NULLS LAST, score DESC NULLS LAST
+                ) AS rn
+            FROM restaurants
+            WHERE ST_DWithin(
                 geom::geography,
-                ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography
-            ) as distance_meters
-        FROM restaurants
-        WHERE ST_DWithin(
-            geom::geography,
-            ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography,
-            %s
+                ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography,
+                %s
+            )
+            AND inspection_date > CURRENT_DATE - INTERVAL '1 year'
         )
-        AND inspection_date > CURRENT_DATE - INTERVAL '1 year'
-        ORDER BY geom <-> ST_SetSRID(ST_MakePoint(%s, %s), 4326)
+        SELECT name, address, grade, score, cuisine_description, hazard, distance_meters
+        FROM ranked
+        WHERE rn = 1
+        ORDER BY distance_meters ASC
         LIMIT 20
     """
     
-    params = (longitude, latitude, longitude, latitude, radius_meters, longitude, latitude)
+    params = (longitude, latitude, longitude, latitude, radius_meters)
     
     try:
         conn = get_db_connection()
@@ -92,6 +102,7 @@ def cold_query(
                 address=row['address'] or '',
                 grade=row['grade'],
                 score=row['score'],
+                cuisine_description=row.get('cuisine_description'),
                 hazard=bool(row['hazard']),
                 distance_meters=float(row['distance_meters'] or 0),
                 hazard_type=HazardType.RESTAURANT
@@ -335,11 +346,14 @@ def cold_query_by_cuisine(
     """
     # Build SQL as a plain string (no f-string) to avoid psycopg2 % conflict
     sql = (
+        "WITH ranked AS ("
         "SELECT dba as name, "
         "CONCAT(building, ' ', street, ', ', zipcode) as address, "
         "grade, score, cuisine_description, "
         "(grade = 'C' OR score > 28) AS hazard, "
-        "ST_Distance(geom::geography, ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography) as distance_meters "
+        "ST_Distance(geom::geography, ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography) as distance_meters, "
+        "ROW_NUMBER() OVER (PARTITION BY COALESCE(camis, dba) "
+        "ORDER BY inspection_date DESC NULLS LAST, score DESC NULLS LAST) AS rn "
         "FROM restaurants "
         "WHERE ST_DWithin(geom::geography, ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography, %s) "
     )
@@ -349,7 +363,13 @@ def cold_query_by_cuisine(
         sql += "AND LOWER(cuisine_description) LIKE LOWER(%s) "
         params.append("%" + cuisine + "%")
 
-    sql += "AND inspection_date > CURRENT_DATE - INTERVAL '1 year' ORDER BY distance_meters ASC LIMIT 15"
+    sql += (
+        "AND inspection_date > CURRENT_DATE - INTERVAL '1 year'"
+        ") "
+        "SELECT name, address, grade, score, cuisine_description, hazard, distance_meters "
+        "FROM ranked WHERE rn = 1 "
+        "ORDER BY distance_meters ASC LIMIT 15"
+    )
 
     try:
         conn = get_db_connection()
@@ -365,6 +385,7 @@ def cold_query_by_cuisine(
                 address=row['address'] or '',
                 grade=row['grade'],
                 score=row['score'],
+                cuisine_description=row.get('cuisine_description'),
                 hazard=bool(row['hazard']),
                 distance_meters=float(row['distance_meters'] or 0),
                 hazard_type=HazardType.RESTAURANT

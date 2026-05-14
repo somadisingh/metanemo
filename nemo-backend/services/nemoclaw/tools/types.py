@@ -45,6 +45,7 @@ class ColdQueryResult:
     address: str
     grade: Optional[str] = None
     score: Optional[int] = None
+    cuisine_description: Optional[str] = None
     hazard: bool = False
     distance_meters: float = 0.0
     hazard_type: HazardType = HazardType.RESTAURANT

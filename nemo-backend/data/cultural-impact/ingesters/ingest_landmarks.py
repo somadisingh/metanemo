@@ -221,35 +221,27 @@ def run_landmarks_ingestion() -> dict:
     """
     
     try:
-        conn = get_connection()
-        with conn.cursor() as cur:
-            # Format records with geometry
-            values = []
-            for r in records:
-                geom_sql = f"ST_GeomFromEWKT('{r[7]}')" if r[7] else "NULL"
-                centroid_sql = f"ST_SetSRID(ST_MakePoint({r[8]}, {r[9]}), 4326)" if r[8] and r[9] else "NULL"
-                values.append((r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[9]))
-            
-            # Use raw SQL for geometry handling
-            for r in records:
-                try:
-                    if r[7]:  # Has geometry
-                        cur.execute("""
-                            INSERT INTO landmarks (object_id, lpc_name, address, borough, block, lot, bbl, geom, centroid)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, ST_GeomFromEWKT(%s), ST_SetSRID(ST_MakePoint(%s, %s), 4326))
-                            ON CONFLICT (object_id) DO UPDATE SET
-                                lpc_name = EXCLUDED.lpc_name,
-                                address = EXCLUDED.address,
-                                geom = EXCLUDED.geom,
-                                centroid = EXCLUDED.centroid
-                        """, (r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[9]))
-                except Exception as e:
-                    logger.warning(f"Failed to insert landmark {r[0]}: {e}")
-                    continue
-            
-            conn.commit()
-        conn.close()
-        
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                # Use raw SQL for geometry handling
+                for r in records:
+                    try:
+                        if r[7]:  # Has geometry
+                            cur.execute("""
+                                INSERT INTO landmarks (object_id, lpc_name, address, borough, block, lot, bbl, geom, centroid)
+                                VALUES (%s, %s, %s, %s, %s, %s, %s, ST_GeomFromEWKT(%s), ST_SetSRID(ST_MakePoint(%s, %s), 4326))
+                                ON CONFLICT (object_id) DO UPDATE SET
+                                    lpc_name = EXCLUDED.lpc_name,
+                                    address = EXCLUDED.address,
+                                    geom = EXCLUDED.geom,
+                                    centroid = EXCLUDED.centroid
+                            """, (r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[9]))
+                    except Exception as e:
+                        logger.warning(f"Failed to insert landmark {r[0]}: {e}")
+                        continue
+
+                conn.commit()
+
         logger.info(f"Upserted {len(records)} landmarks")
         return {'success': True, 'upserted_count': len(records)}
         

@@ -16,7 +16,8 @@ services:
     networks: [metaglass-net]
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./data/human-impact/schema/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./data/human-impact/schema/init.sql:/docker-entrypoint-initdb.d/01_human_init.sql:ro
+      - ./data/cultural-impact/schema/init.sql:/docker-entrypoint-initdb.d/02_cultural_init.sql:ro
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}

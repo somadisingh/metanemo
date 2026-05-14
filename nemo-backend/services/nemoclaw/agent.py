@@ -125,7 +125,7 @@ crash/collision/accident/dangerous intersection/pedestrian safety -> {"intent":"
 heat/hot/cooling center/temperature/heatwave -> {"intent":"heat","confidence":0.95,"tool":"heat_query","clarification_needed":false}
 architecture/building/buildings/famous building/historic building/skyscraper/structure -> {"intent":"architecture","confidence":0.95,"tool":"architecture_query","clarification_needed":false}
 film shoot/filming/movie shoot/tv shoot/shooting permit/what are they filming -> {"intent":"film","confidence":0.95,"tool":"film_query","clarification_needed":false}
-film/movie/landmark/monument/museum/culture/famous/historic/site -> {"intent":"cultural","confidence":0.95,"tool":"cultural_query","clarification_needed":false}
+film/movie/landmark/monument/museum/culture/famous/historic/site/sites of interest/points of interest/things to see/attractions -> {"intent":"cultural","confidence":0.95,"tool":"cultural_query","clarification_needed":false}
 safety briefing/around me/area/nearby/what is here/how is it/what's going on -> {"intent":"general","confidence":0.95,"tool":"general","clarification_needed":false}
 general knowledge/science/history/nature/weather/sports/cooking/health/technology/anything not NYC location-specific -> {"intent":"off_topic","confidence":0.95,"tool":"none","clarification_needed":false}
 unclear -> {"intent":"unclear","confidence":0.3,"tool":"none","clarification_needed":true}
@@ -319,14 +319,18 @@ def synthesize_response(tool_result: Any, intent: str, user_text: str) -> str:
     elif isinstance(tool_result, list) and tool_result:
         # Could be ColdQueryResult list or CollisionResult list
         if hasattr(tool_result[0], 'hazard'):
-            # Restaurant results
-            hazardous = [r for r in tool_result if r.hazard]
-            if hazardous:
-                context = f"Found {len(hazardous)} restaurants with health concerns:\n" + "\n".join(
-                    [f"- {r.name}, grade={r.grade}, score={r.score}" for r in hazardous[:5]]
-                )
-            else:
-                context = f"Found {len(tool_result)} restaurants nearby, all with good health grades."
+            # Restaurant results - include all nearby places (not only hazardous)
+            lines = []
+            for r in tool_result[:10]:
+                cuisine = getattr(r, 'cuisine_description', None) or 'Various'
+                grade = r.grade or 'N/A'
+                score = r.score if r.score is not None else 'N/A'
+                lines.append(f"- {r.name} ({cuisine}), grade={grade}, score={score}, {r.distance_meters:.0f}m")
+            hazard_count = sum(1 for r in tool_result if r.hazard)
+            context = (
+                f"Nearest restaurants across cuisines ({len(tool_result)} found, {hazard_count} with health concerns):\n"
+                + "\n".join(lines)
+            )
         elif hasattr(tool_result[0], 'severity_score'):
             # Collision results
             context = f"Found {len(tool_result)} pedestrian collision hotspots nearby:\n" + "\n".join(
@@ -502,8 +506,8 @@ def synthesize_response(tool_result: Any, intent: str, user_text: str) -> str:
         _sys = "You are an NYC urban assistant. Summarize the following data for someone walking nearby."
         _ollama = "State the raw facts from the DATA section in 2-3 plain spoken sentences. Report only what the data says. No bullet points, no emoji, no markdown, no advice."
 
-    # For subway_station, return formatted context directly — no LLM needed
-    if _intent_type == 'subway_station':
+    # For deterministic list-style intents, return directly (no LLM rewriting).
+    if _intent_type in ('subway_station', 'food', 'cuisine'):
         return context
 
     # Step 1: Nemotron summarizes the data freely (thinking is fine)
@@ -606,12 +610,31 @@ async def process_request(request: AgentRequest):
     _CUISINE_KW = {'italian','chinese','mexican','japanese','indian','thai','french','greek',
                    'korean','sushi','ramen','pizza','burger','burgers','american','caribbean',
                    'spanish','vietnamese','turkish','mediterranean','ethiopian','peruvian','brazilian'}
+    _RESTAURANT_KW = {'restaurant', 'restaurants', 'food', 'eat', 'dining', 'cafe', 'cafes'}
+    _POI_KW = {'site of interest', 'sites of interest', 'point of interest', 'points of interest',
+               'things to see', 'attraction', 'attractions', 'monument', 'monuments', 'landmark', 'landmarks'}
+    _ARCH_KW = {'architecture', 'architectural', 'building', 'buildings', 'skyscraper', 'historic building'}
+    _NON_LOCAL = {'paris', 'london', 'tokyo', 'rome', 'berlin', 'madrid', 'beijing', 'shanghai', 'dubai', 'sydney',
+                  'toronto', 'chicago', 'los angeles', 'san francisco', 'miami', 'boston', 'seattle', 'las vegas'}
     _LOC_KW = ['near me','nearby','near here','around me','close by','in this area']
     _utl = (request.text or '').lower()
     if intent not in LOCATION_INTENTS and any(k in _utl for k in _CUISINE_KW):
         if any(l in _utl for l in _LOC_KW):
             intent = 'cuisine'
             tool = 'cuisine_query'
+    if any(k in _utl for k in _RESTAURANT_KW):
+        if any(k in _utl for k in _CUISINE_KW):
+            intent = 'cuisine'
+            tool = 'cuisine_query'
+        elif not any(city in _utl for city in _NON_LOCAL):
+            intent = 'food'
+            tool = 'cold_query'
+    if any(k in _utl for k in _POI_KW):
+        intent = 'cultural'
+        tool = 'cultural_query'
+    if any(k in _utl for k in _ARCH_KW) and not any(k in _utl for k in _POI_KW):
+        intent = 'architecture'
+        tool = 'architecture_query'
     VALID_TOOLS = {
         'cold_query', 'cuisine_query', 'hot_query', 'collision_query',
         'heat_query', 'accessibility_query', 'cultural_query',
@@ -653,6 +676,10 @@ async def process_request(request: AgentRequest):
     if not is_off_topic and intent in ('food', 'cuisine'):
         if any(p in _utl for p in _FOOD_KNOW) and not any(l in _utl for l in _LOC_KW):
             is_off_topic = True
+    # Only keep cuisine intent if an explicit cuisine keyword exists.
+    if intent == 'cuisine' and not any(k in _utl for k in _CUISINE_KW):
+        intent = 'food'
+        tool = 'cold_query'
 
     # Override tool with the correct one for the intent (prevents LLM hallucinating wrong tool)
     if not is_off_topic and intent in INTENT_TOOL_MAP:
@@ -764,7 +791,7 @@ async def process_request(request: AgentRequest):
             hazards = []
 
         elif tool == 'cultural_query':
-            tool_result = cultural_query(request.latitude, request.longitude)
+            tool_result = cultural_query(request.latitude, request.longitude, radius_meters=1200)
             hazards = []
 
         elif tool == 'subway_query':

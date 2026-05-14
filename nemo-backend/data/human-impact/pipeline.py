@@ -22,6 +22,7 @@ sys.path.insert(0, '..')
 from shared.db import init_pool, close_pool, test_connection
 from ingesters.ingest_restaurants import run_restaurant_ingestion
 from ingesters.ingest_collisions import run_collision_ingestion
+from ingesters.ingest_subway import ingest as run_subway_ingestion
 from ingesters.ingest_wikidata_productions import run as run_wikidata_ingestion
 from ingesters.ingest_311 import run_311_ingestion
 
@@ -76,6 +77,13 @@ def nightly_cold_ingestion():
     # Motor vehicle collisions
     logger.info("--- Collision Ingestion ---")
     results['collisions'] = run_collision_ingestion()
+    logger.info("--- Subway Entrances Ingestion ---")
+    try:
+        run_subway_ingestion()
+        results['subway_entrances'] = {'success': True}
+    except Exception as e:
+        logger.error(f"Subway ingestion failed: {e}")
+        results['subway_entrances'] = {'success': False, 'error': str(e)}
     try:
         results['wikidata'] = run_wikidata_ingestion()
     except Exception as e:

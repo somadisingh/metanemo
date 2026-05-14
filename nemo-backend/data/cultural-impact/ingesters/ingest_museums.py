@@ -144,49 +144,48 @@ def run_museums_ingestion() -> dict:
     inserted = 0
     
     try:
-        conn = get_connection()
-        with conn.cursor() as cur:
-            for record in museums:
-                name = sanitize_text(record.get('name'))
-                if not name:
-                    continue
-                
-                coords = extract_coordinates(record)
-                if not coords:
-                    continue
-                
-                zipcode = record.get('zip', '').replace('.0', '')
-                borough = infer_borough(zipcode)
-                
-                # Note: Phone number intentionally NOT stored for privacy
-                website = sanitize_url(record.get('url'))
-                
-                address = sanitize_text(record.get('adress1', '') + ' ' + record.get('address2', ''))
-                city = sanitize_text(record.get('city'))
-                
-                try:
-                    cur.execute("""
-                        INSERT INTO cultural_venues (name, venue_type, address, city, zipcode, borough, website, geom)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326))
-                        ON CONFLICT DO NOTHING
-                    """, (
-                        name,
-                        'Museum',
-                        address,
-                        city,
-                        zipcode,
-                        borough,
-                        website,
-                        coords[0], coords[1]
-                    ))
-                    inserted += 1
-                except Exception as e:
-                    logger.warning(f"Failed to insert {name}: {e}")
-                    continue
-            
-            conn.commit()
-        conn.close()
-        
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                for record in museums:
+                    name = sanitize_text(record.get('name'))
+                    if not name:
+                        continue
+
+                    coords = extract_coordinates(record)
+                    if not coords:
+                        continue
+
+                    zipcode = record.get('zip', '').replace('.0', '')
+                    borough = infer_borough(zipcode)
+
+                    # Note: Phone number intentionally NOT stored for privacy
+                    website = sanitize_url(record.get('url'))
+
+                    address = sanitize_text(record.get('adress1', '') + ' ' + record.get('address2', ''))
+                    city = sanitize_text(record.get('city'))
+
+                    try:
+                        cur.execute("""
+                            INSERT INTO cultural_venues (name, venue_type, address, city, zipcode, borough, website, geom)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326))
+                            ON CONFLICT DO NOTHING
+                        """, (
+                            name,
+                            'Museum',
+                            address,
+                            city,
+                            zipcode,
+                            borough,
+                            website,
+                            coords[0], coords[1]
+                        ))
+                        inserted += 1
+                    except Exception as e:
+                        logger.warning(f"Failed to insert {name}: {e}")
+                        continue
+
+                conn.commit()
+
         logger.info(f"Inserted {inserted} museums")
         return {'success': True, 'inserted_count': inserted}
         
