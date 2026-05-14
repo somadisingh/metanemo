@@ -505,6 +505,34 @@ def synthesize_response(tool_result: Any, intent: str, user_text: str) -> str:
 
     # Pick system prompt and Ollama instruction based on intent type
     _intent_type = intent or "safety"
+    if _intent_type == "nypd_alerts":
+        hot_payload = tool_result.get('result') if isinstance(tool_result, dict) else tool_result
+        if isinstance(hot_payload, HotQueryResult):
+            police_related = []
+            for r in hot_payload.results:
+                if r.type != "311":
+                    continue
+                desc = (r.description or "").lower()
+                ctype = (r.complaint_type or "").lower()
+                if any(k in desc or k in ctype for k in ("police", "nypd", "crime", "assault", "robbery", "weapon", "gun")):
+                    police_related.append(r)
+            if police_related:
+                lines = [f"- {clean(a.description)[:120]}" for a in police_related[:8]]
+                return "Latest NYPD-related alerts nearby:\n" + "\n".join(lines)
+        return "No latest NYPD-related alerts found nearby."
+
+    if _intent_type == "transit":
+        hot_payload = tool_result.get('result') if isinstance(tool_result, dict) else tool_result
+        nearby_routes = tool_result.get('nearby_routes', []) if isinstance(tool_result, dict) else []
+        if isinstance(hot_payload, HotQueryResult):
+            mta_alerts = [r for r in hot_payload.results if r.type == "MTA"]
+            if mta_alerts:
+                lines = [f"- {clean(a.description)[:120]}" for a in mta_alerts[:8]]
+                return "Active subway/MTA alerts nearby:\n" + "\n".join(lines)
+        if nearby_routes:
+            return "No active subway/MTA alerts found nearby for lines " + "/".join(nearby_routes[:6]) + "."
+        return "No active subway/MTA alerts found nearby."
+
     if _intent_type == "film":
         _sys = "You are a film location guide for NYC. Report only film and TV production names, years, and locations. Do not mention restaurants, transit lines, or safety data."
         _ollama = "State only the film and TV production facts from the DATA section in 2-3 plain spoken sentences. Do not mention restaurants, transit, or safety. No bullet points, no emoji, no markdown."
@@ -622,7 +650,7 @@ async def process_request(request: AgentRequest):
     LOCATION_INTENTS = {
         'food', 'cuisine', 'transit', 'safety', 'collision',
         'heat', 'accessibility', 'cultural', 'architecture',
-        'film', 'general', 'subway_station'
+        'film', 'general', 'subway_station', 'nypd_alerts'
     }
 
     # Pre-pass: if LLM returned a non-standard intent but user text has cuisine + location keywords
@@ -633,6 +661,13 @@ async def process_request(request: AgentRequest):
     _POI_KW = {'site of interest', 'sites of interest', 'point of interest', 'points of interest',
                'things to see', 'attraction', 'attractions', 'monument', 'monuments', 'landmark', 'landmarks'}
     _ARCH_KW = {'architecture', 'architectural', 'building', 'buildings', 'skyscraper', 'historic building'}
+    _TRANSIT_ALERT_KW = {
+        'alert', 'alerts', 'delay', 'delays', 'service change', 'service changes',
+        'status', 'outage', 'disruption', 'disruptions', 'suspended', 'suspension',
+        'planned work', 'weekend service', 'reroute', 'rerouted'
+    }
+    _TRANSIT_MODE_KW = {'subway', 'mta', 'train', 'trains', 'transit', 'bus', 'buses'}
+    _NYPD_ALERT_KW = {'nypd', 'police', 'crime', 'public safety', 'incident', 'incidents'}
     _NON_LOCAL = {'paris', 'london', 'tokyo', 'rome', 'berlin', 'madrid', 'beijing', 'shanghai', 'dubai', 'sydney',
                   'toronto', 'chicago', 'los angeles', 'san francisco', 'miami', 'boston', 'seattle', 'las vegas'}
     _LOC_KW = ['near me','nearby','near here','around me','close by','in this area']
@@ -654,6 +689,14 @@ async def process_request(request: AgentRequest):
     if any(k in _utl for k in _ARCH_KW) and not any(k in _utl for k in _POI_KW):
         intent = 'architecture'
         tool = 'architecture_query'
+    # Transit alerts/status should use live hot_query, not nearest-station lookup.
+    if any(k in _utl for k in _TRANSIT_ALERT_KW) and any(k in _utl for k in _TRANSIT_MODE_KW):
+        intent = 'transit'
+        tool = 'hot_query'
+    # NYPD/police alerts should use hot_query with safety-focused formatting.
+    if any(k in _utl for k in _TRANSIT_ALERT_KW) and any(k in _utl for k in _NYPD_ALERT_KW):
+        intent = 'nypd_alerts'
+        tool = 'hot_query'
     VALID_TOOLS = {
         'cold_query', 'cuisine_query', 'hot_query', 'collision_query',
         'heat_query', 'accessibility_query', 'cultural_query',
@@ -668,6 +711,7 @@ async def process_request(request: AgentRequest):
         'collision': 'collision_query', 'heat': 'heat_query',
         'accessibility': 'accessibility_query', 'cultural': 'cultural_query',
         'architecture': 'architecture_query', 'film': 'film_query', 'subway_station': 'subway_query',
+        'nypd_alerts': 'hot_query',
         'general': 'general',
     }
     is_off_topic = (
@@ -776,10 +820,10 @@ async def process_request(request: AgentRequest):
                 hazards = [asdict(r) for r in tool_result if r.hazard]
             
         elif tool == 'hot_query':
-            tool_result = hot_query(request.latitude, request.longitude)
+            hot_result = hot_query(request.latitude, request.longitude)
             # Score and record transit patterns
             filtered_results = []
-            for r in tool_result.results:
+            for r in hot_result.results:
                 if r.type == 'MTA':
                     route_id = getattr(r, 'route_id', None)
                     _post_user_profile('/visits/transit', {
@@ -793,8 +837,22 @@ async def process_request(request: AgentRequest):
                                               _req_timestamp)
                 if not score_resp.get('suppressed', False):
                     filtered_results.append(r)
-            tool_result.results = filtered_results
-            hazards = [asdict(r) for r in tool_result.results if r.severity in [Severity.HIGH, Severity.MEDIUM]]
+            hot_result.results = filtered_results
+            hazards = [asdict(r) for r in hot_result.results if r.severity in [Severity.HIGH, Severity.MEDIUM]]
+            if intent == 'transit':
+                nearby_routes, _stations = get_nearby_subway_routes(request.latitude, request.longitude)
+                tool_result = {
+                    'type': 'transit_alerts',
+                    'result': hot_result,
+                    'nearby_routes': sorted(nearby_routes),
+                }
+            elif intent == 'nypd_alerts':
+                tool_result = {
+                    'type': 'nypd_alerts',
+                    'result': hot_result,
+                }
+            else:
+                tool_result = hot_result
         elif tool == 'collision_query':
             tool_result = query_collision_hotspots(request.latitude, request.longitude)
             hazards = [asdict(r) for r in tool_result]
@@ -815,7 +873,6 @@ async def process_request(request: AgentRequest):
 
         elif tool == 'subway_query':
             # Nearest subway stations with all lines they serve
-            from tools.hot_query import get_nearby_subway_routes
             _routes, _stations = get_nearby_subway_routes(request.latitude, request.longitude)
             tool_result = {
                 'type': 'subway_station',
@@ -919,6 +976,7 @@ async def process_request(request: AgentRequest):
         'food': 'restaurant', 'transit': 'transit',
         'safety': 'safety', 'collision': 'safety',
         'general': 'safety', 'cultural': 'discovery',
+        'nypd_alerts': 'safety',
     }.get(intent, 'safety')
     _post_user_profile('/signals', {
         'alert_type': _alert_type_for_signal,
