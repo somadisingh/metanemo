@@ -117,6 +117,58 @@ def _fetch_latest_citywide_nypd_alert() -> Optional[dict]:
         return None
 
 
+def _fetch_citywide_mta_alerts(limit: int = 20) -> list:
+    """Fetch latest citywide MTA subway alerts (no nearby-route filtering)."""
+    alerts_url = "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/camsys%2Fsubway-alerts.json"
+    try:
+        response = requests.get(alerts_url, timeout=15)
+        response.raise_for_status()
+        data = response.json()
+        entities = data.get('entity', [])
+
+        def _severity_rank(text: str) -> int:
+            t = text.lower()
+            if any(x in t for x in ['bypass', 'no service', 'suspended', 'not running', 'skip']):
+                return 3
+            if any(x in t for x in ['delay', 'slow', 'crowding', 'reroute']):
+                return 2
+            return 1
+
+        seen = set()
+        parsed = []
+        for entity in entities:
+            alert = entity.get('alert', {})
+            header = alert.get('header_text', {})
+            translations = header.get('translation', [])
+            text = ''
+            for t in translations:
+                if t.get('language') == 'en':
+                    text = t.get('text', '')
+                    break
+            if not text and translations:
+                text = translations[0].get('text', '')
+            if not text:
+                continue
+
+            informed = alert.get('informed_entity', [])
+            routes = sorted({ie.get('route_id') for ie in informed if ie.get('route_id')})
+            key = (text[:180], tuple(routes))
+            if key in seen:
+                continue
+            seen.add(key)
+            parsed.append({
+                'text': text[:180],
+                'routes': routes,
+                'severity_rank': _severity_rank(text),
+            })
+
+        parsed.sort(key=lambda x: x['severity_rank'], reverse=True)
+        return parsed[:limit]
+    except Exception as e:
+        logger.error(f"Citywide MTA alert fetch failed: {e}")
+        return []
+
+
 # Request/Response models
 class AgentRequest(BaseModel):
     text: Optional[str] = None
@@ -143,6 +195,7 @@ food/restaurant/eat/grade/dining/open -> {"intent":"food","confidence":0.95,"too
 accessible/wheelchair/ada/disability/ramp/elevator/accessible subway -> {"intent":"accessibility","confidence":0.95,"tool":"accessibility_query","clarification_needed":false}
 nearest subway/closest subway station/subway station near me/what subway is near/which station/subway entrance -> {"intent":"subway_station","confidence":0.95,"tool":"subway_query","clarification_needed":false}
 transit/subway/mta/bus/delay/train -> {"intent":"transit","confidence":0.95,"tool":"hot_query","clarification_needed":false}
+show all subway alerts/all mta alerts/citywide subway alerts/subway alerts across the city -> {"intent":"transit_citywide","confidence":0.95,"tool":"hot_query","clarification_needed":false}
 nypd alerts/police alerts/latest nypd incident/crime alerts -> {"intent":"nypd_alerts","confidence":0.95,"tool":"hot_query","clarification_needed":false}
 noise/311/construction/street/hazard -> {"intent":"safety","confidence":0.95,"tool":"hot_query","clarification_needed":false}
 crash/collision/accident/dangerous intersection/pedestrian safety -> {"intent":"collision","confidence":0.95,"tool":"collision_query","clarification_needed":false}
@@ -570,6 +623,16 @@ def synthesize_response(tool_result: Any, intent: str, user_text: str) -> str:
             return "No active subway/MTA alerts found nearby for lines " + "/".join(nearby_routes[:6]) + "."
         return "No active subway/MTA alerts found nearby."
 
+    if _intent_type == "transit_citywide":
+        alerts = tool_result.get('alerts', []) if isinstance(tool_result, dict) else []
+        if alerts:
+            lines = []
+            for a in alerts[:12]:
+                route_prefix = f"[{'/'.join(a.get('routes', []))}] " if a.get('routes') else ""
+                lines.append(f"- {route_prefix}{clean(a.get('text', ''))}")
+            return "Citywide subway/MTA alerts (latest):\n" + "\n".join(lines)
+        return "No active citywide subway/MTA alerts found."
+
     if _intent_type == "film":
         _sys = "You are a film location guide for NYC. Report only film and TV production names, years, and locations. Do not mention restaurants, transit lines, or safety data."
         _ollama = "State only the film and TV production facts from the DATA section in 2-3 plain spoken sentences. Do not mention restaurants, transit, or safety. No bullet points, no emoji, no markdown."
@@ -687,7 +750,7 @@ async def process_request(request: AgentRequest):
     LOCATION_INTENTS = {
         'food', 'cuisine', 'transit', 'safety', 'collision',
         'heat', 'accessibility', 'cultural', 'architecture',
-        'film', 'general', 'subway_station', 'nypd_alerts'
+        'film', 'general', 'subway_station', 'nypd_alerts', 'transit_citywide'
     }
 
     # Pre-pass: if LLM returned a non-standard intent but user text has cuisine + location keywords
@@ -704,6 +767,7 @@ async def process_request(request: AgentRequest):
         'planned work', 'weekend service', 'reroute', 'rerouted'
     }
     _TRANSIT_MODE_KW = {'subway', 'mta', 'train', 'trains', 'transit', 'bus', 'buses'}
+    _CITYWIDE_KW = {'citywide', 'across the city', 'entire city', 'all city', 'all nyc', 'nyc-wide', 'all'}
     _NYPD_ALERT_KW = {'nypd', 'police', 'crime', 'public safety', 'incident', 'incidents'}
     _NON_LOCAL = {'paris', 'london', 'tokyo', 'rome', 'berlin', 'madrid', 'beijing', 'shanghai', 'dubai', 'sydney',
                   'toronto', 'chicago', 'los angeles', 'san francisco', 'miami', 'boston', 'seattle', 'las vegas'}
@@ -730,6 +794,11 @@ async def process_request(request: AgentRequest):
     if any(k in _utl for k in _TRANSIT_ALERT_KW) and any(k in _utl for k in _TRANSIT_MODE_KW):
         intent = 'transit'
         tool = 'hot_query'
+    # Citywide transit alerts explicitly request all-city coverage.
+    if any(k in _utl for k in _TRANSIT_ALERT_KW) and any(k in _utl for k in _TRANSIT_MODE_KW):
+        if ('all subway alerts' in _utl) or ('all mta alerts' in _utl) or ('show all' in _utl and 'alert' in _utl) or any(k in _utl for k in _CITYWIDE_KW):
+            intent = 'transit_citywide'
+            tool = 'hot_query'
     # NYPD/police alerts should use hot_query with safety-focused formatting.
     if any(k in _utl for k in _TRANSIT_ALERT_KW) and any(k in _utl for k in _NYPD_ALERT_KW):
         intent = 'nypd_alerts'
@@ -748,7 +817,7 @@ async def process_request(request: AgentRequest):
         'collision': 'collision_query', 'heat': 'heat_query',
         'accessibility': 'accessibility_query', 'cultural': 'cultural_query',
         'architecture': 'architecture_query', 'film': 'film_query', 'subway_station': 'subway_query',
-        'nypd_alerts': 'hot_query',
+        'nypd_alerts': 'hot_query', 'transit_citywide': 'hot_query',
         'general': 'general',
     }
     is_off_topic = (
@@ -857,6 +926,24 @@ async def process_request(request: AgentRequest):
                 hazards = [asdict(r) for r in tool_result if r.hazard]
             
         elif tool == 'hot_query':
+            if intent == 'transit_citywide':
+                citywide_alerts = _fetch_citywide_mta_alerts(limit=20)
+                tool_result = {
+                    'type': 'transit_citywide',
+                    'alerts': citywide_alerts,
+                }
+                response_text = synthesize_response(tool_result, intent, request.text or "")
+                _post_user_profile('/signals', {'alert_type': 'transit', 'signal': 'positive'})
+                _post_user_profile('/interests', {'topic': 'transit', 'delta': 0.05})
+                return AgentResponseModel(
+                    text=response_text,
+                    tool_used='hot_query',
+                    confidence=confidence,
+                    requires_clarification=False,
+                    hazards=[],
+                    qol_score=0
+                )
+
             if intent == 'nypd_alerts':
                 latest_nypd = _fetch_latest_citywide_nypd_alert()
                 tool_result = {
@@ -1033,7 +1120,7 @@ async def process_request(request: AgentRequest):
         'food': 'restaurant', 'transit': 'transit',
         'safety': 'safety', 'collision': 'safety',
         'general': 'safety', 'cultural': 'discovery',
-        'nypd_alerts': 'safety',
+        'nypd_alerts': 'safety', 'transit_citywide': 'transit',
     }.get(intent, 'safety')
     _post_user_profile('/signals', {
         'alert_type': _alert_type_for_signal,

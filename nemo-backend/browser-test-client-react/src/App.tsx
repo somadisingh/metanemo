@@ -6,16 +6,13 @@ type ChatMessage = { role: ChatRole; text: string }
 
 function App() {
   const [wsUrl, setWsUrl] = useState('ws://localhost:8080/ws')
-  const [nemoclawBase, setNemoclawBase] = useState('http://localhost:8090')
   const [lat, setLat] = useState('40.7580')
   const [lon, setLon] = useState('-73.9855')
   const [messageInput, setMessageInput] = useState('')
   const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [apiOut, setApiOut] = useState('')
   const [wsConnected, setWsConnected] = useState(false)
   const [locating, setLocating] = useState(false)
   const [locState, setLocState] = useState('Location source: default coordinates')
-  const [endpointPath, setEndpointPath] = useState('/v1/agent')
   const wsRef = useRef<WebSocket | null>(null)
 
   const addMsg = (role: ChatRole, text: string) => {
@@ -128,56 +125,6 @@ function App() {
     }
   }
 
-  const get = async (url: string) => {
-    const res = await fetch(url)
-    const text = await res.text()
-    try {
-      return { status: res.status, body: JSON.parse(text) }
-    } catch {
-      return { status: res.status, body: text }
-    }
-  }
-
-  const post = async (url: string, body?: unknown) => {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: body ? JSON.stringify(body) : undefined,
-    })
-    const text = await res.text()
-    try {
-      return { status: res.status, body: JSON.parse(text) }
-    } catch {
-      return { status: res.status, body: text }
-    }
-  }
-
-  const runApi = async () => {
-    const base = nemoclawBase.replace(/\/$/, '')
-    const { latitude, longitude } = coords()
-    const path = endpointPath
-      .replace('{lat}', String(latitude))
-      .replace('{lon}', String(longitude))
-    const url = `${base}${path}`
-    const body =
-      path.startsWith('/v1/agent')
-        ? { text: 'Give me a concise safety summary for around me.', latitude, longitude }
-        : undefined
-    try {
-      const result = await post(url, body)
-      setApiOut(`POST ${url} -> ${result.status}\n\n${JSON.stringify(result.body, null, 2)}`)
-    } catch (e: any) {
-      setApiOut(`Request failed: ${e.message}`)
-    }
-  }
-
-  const hitMiddleware = async (path: '/health' | '/metrics' | '/admin/alert') => {
-    const url = `http://localhost:8080${path}`
-    const result = path === '/admin/alert' ? await post(url) : await get(url)
-    const method = path === '/admin/alert' ? 'POST' : 'GET'
-    setApiOut(`${method} ${url} -> ${result.status}\n\n${JSON.stringify(result.body, null, 2)}`)
-  }
-
   useEffect(() => {
     return () => wsRef.current?.close()
   }, [])
@@ -185,17 +132,16 @@ function App() {
   return (
     <div className="wrap">
       <div className="topbar">
-        <div>
+        <div className="titleRow">
           <strong>Nemo Chat Test UI (React + TS)</strong>{' '}
           <span className={wsConnected ? 'ok' : 'bad'}>
             {wsConnected ? 'Connected' : 'Disconnected'}
           </span>
         </div>
         <div className="row">
-          <input value={wsUrl} onChange={(e) => setWsUrl(e.target.value)} />
-          <input value={nemoclawBase} onChange={(e) => setNemoclawBase(e.target.value)} />
-          <input value={lat} onChange={(e) => setLat(e.target.value)} />
-          <input value={lon} onChange={(e) => setLon(e.target.value)} />
+          <input className="wsInput" value={wsUrl} onChange={(e) => setWsUrl(e.target.value)} />
+          <input className="coordInput" value={lat} onChange={(e) => setLat(e.target.value)} />
+          <input className="coordInput" value={lon} onChange={(e) => setLon(e.target.value)} />
           <button className="alt" onClick={() => void requestCurrentLocation(false)} disabled={locating}>
             {locating ? 'Locating...' : 'Use Current Location'}
           </button>
@@ -225,29 +171,12 @@ function App() {
           </div>
         </div>
 
-        <div className="panel">
-          <div><strong>Quick API Tests</strong></div>
-          <div className="row">
-            <select value={endpointPath} onChange={(e) => setEndpointPath(e.target.value)}>
-              <option value="/v1/agent">POST /v1/agent</option>
-              <option value="/v1/situation_report?latitude={lat}&longitude={lon}">POST /v1/situation_report</option>
-              <option value="/v1/hot_query?latitude={lat}&longitude={lon}">POST /v1/hot_query</option>
-              <option value="/v1/cold_query?latitude={lat}&longitude={lon}&radius_meters=300">POST /v1/cold_query</option>
-              <option value="/v1/collisions?latitude={lat}&longitude={lon}&radius_meters=300">POST /v1/collisions</option>
-              <option value="/v1/accessibility?latitude={lat}&longitude={lon}&radius_meters=300">POST /v1/accessibility</option>
-              <option value="/v1/heat?latitude={lat}&longitude={lon}">POST /v1/heat</option>
-              <option value="/v1/edge_cases?latitude={lat}&longitude={lon}">POST /v1/edge_cases</option>
-              <option value="/v1/cultural?latitude={lat}&longitude={lon}">POST /v1/cultural</option>
-            </select>
-            <button onClick={() => void runApi()}>Run</button>
+        <div className="panel docsPanel">
+          <div className="docsTitle">API Docs</div>
+          <div className="docsLinks">
+            API docs: <a href="http://localhost:8090/docs" target="_blank" rel="noreferrer">NemoClaw Swagger</a> ·{' '}
+            <a href="http://localhost:8081/docs" target="_blank" rel="noreferrer">User-profile Swagger</a>
           </div>
-          <div className="row">
-            <button className="alt" onClick={() => void hitMiddleware('/health')}>GET middleware /health</button>
-            <button className="alt" onClick={() => void hitMiddleware('/metrics')}>GET middleware /metrics</button>
-            <button className="warn" onClick={() => void hitMiddleware('/admin/alert')}>POST middleware /admin/alert</button>
-          </div>
-          <div className="mini">Last API Result</div>
-          <pre className="api">{apiOut}</pre>
         </div>
       </div>
     </div>
