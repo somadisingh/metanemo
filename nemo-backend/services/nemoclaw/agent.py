@@ -507,7 +507,7 @@ def synthesize_response(tool_result: Any, intent: str, user_text: str) -> str:
         _ollama = "State the raw facts from the DATA section in 2-3 plain spoken sentences. Report only what the data says. No bullet points, no emoji, no markdown, no advice."
 
     # For deterministic list-style intents, return directly (no LLM rewriting).
-    if _intent_type in ('subway_station', 'food', 'cuisine'):
+    if _intent_type in ('subway_station', 'food', 'cuisine', 'cultural', 'architecture'):
         return context
 
     # Step 1: Nemotron summarizes the data freely (thinking is fine)
