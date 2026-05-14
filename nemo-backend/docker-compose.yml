@@ -29,7 +29,9 @@ services:
     restart: unless-stopped
 
   data-pipeline:
-    build: ./data
+    build:
+      context: ./data
+      dockerfile: human-impact/Dockerfile
     container_name: metaglass-data-pipeline
     networks: [metaglass-net]
     depends_on:
@@ -44,6 +46,7 @@ services:
       SOCRATA_APP_TOKEN: ${SOCRATA_APP_TOKEN}
       SOCRATA_RESTAURANT_ENDPOINT: ${SOCRATA_RESTAURANT_ENDPOINT}
       SOCRATA_COLLISION_ENDPOINT: ${SOCRATA_COLLISION_ENDPOINT}
+      SOCRATA_311_ENDPOINT: ${SOCRATA_311_ENDPOINT}
       PIPELINE_CRON_HOUR: ${PIPELINE_CRON_HOUR}
       PIPELINE_CRON_MINUTE: ${PIPELINE_CRON_MINUTE}
     restart: unless-stopped

@@ -289,6 +289,9 @@ def fetch_mta_alerts(
     """
     # Get routes serving nearby stations
     nearby_routes, nearby_stations = get_nearby_subway_routes(latitude, longitude)
+    if not nearby_routes:
+        logger.info("No nearby subway routes found; skipping MTA alert injection")
+        return [], True
     
     # Public JSON endpoint - no API key needed for alerts
     alerts_url = "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/camsys%2Fsubway-alerts.json"
@@ -359,12 +362,10 @@ def fetch_mta_alerts(
             else:
                 other_alerts.append(item)
         
-        # Combine: relevant alerts first (up to 15), then other high-severity (up to 5)
+        # Only return route-relevant alerts to avoid unrelated citywide noise.
         results = relevant_alerts[:15]
-        high_severity_others = [a for a in other_alerts if a.severity == Severity.HIGH][:5]
-        results.extend(high_severity_others)
-        
-        logger.info(f"Fetched {len(relevant_alerts)} relevant + {len(high_severity_others)} other MTA alerts")
+
+        logger.info(f"Fetched {len(relevant_alerts)} relevant MTA alerts")
         return results, True
         
     except requests.RequestException as e:

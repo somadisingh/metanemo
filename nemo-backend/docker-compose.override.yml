@@ -1,4 +1,41 @@
 services:
+  data-pipeline:
+    build:
+      context: ./data
+      dockerfile: human-impact/Dockerfile
+    container_name: metaglass-data-pipeline
+    networks: [metaglass-net]
+    depends_on:
+      postgres-postgis:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: postgres-postgis
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: metaglass
+      POSTGRES_PASSWORD: metaglass2026
+      POSTGRES_DB: metaglass
+      SOCRATA_APP_TOKEN: ""
+      SOCRATA_RESTAURANT_ENDPOINT: "https://data.cityofnewyork.us/resource/43nn-pn8j.csv"
+      SOCRATA_COLLISION_ENDPOINT: "https://data.cityofnewyork.us/resource/h9gi-nx95.json"
+      SOCRATA_311_ENDPOINT: "https://data.cityofnewyork.us/resource/erm2-nwe9.json"
+      PIPELINE_CRON_HOUR: "2"
+      PIPELINE_CRON_MINUTE: "0"
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: metaglass-ollama
+    networks: [metaglass-net]
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
   nemotron-nim:
     image: busybox:latest
     container_name: metaglass-nemotron
@@ -53,9 +90,12 @@ services:
       POSTGRES_USER: metaglass
       POSTGRES_PASSWORD: metaglass2026
       POSTGRES_DB: metaglass
-      USE_OLLAMA: "false"
-      OLLAMA_HOST: host.docker.internal
+      USE_OLLAMA: "true"
+      OLLAMA_HOST: ollama
       OLLAMA_PORT: "11434"
+    depends_on:
+      ollama:
+        condition: service_started
 
   middleware:
     extra_hosts:
@@ -71,6 +111,10 @@ services:
       RIVA_TTS_PORT: "50052"
       LOG_LEVEL: info
       NODE_ENV: production
+      PROACTIVE_ALERTS_ENABLED: "false"
 
   postgres-postgis:
     image: imresamu/postgis:15-3.4-alpine
+
+volumes:
+  ollama-data:

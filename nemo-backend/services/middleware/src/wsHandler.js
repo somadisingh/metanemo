@@ -27,6 +27,7 @@ import { processAudio, clearBuffer, flushBuffer } from './asrClient.js';
 
 // VAD: silence threshold — if no audio for this many ms, treat as end of utterance
 const SILENCE_THRESHOLD_MS = 1500;
+const PROACTIVE_ALERTS_ENABLED = (process.env.PROACTIVE_ALERTS_ENABLED ?? 'true').toLowerCase() === 'true';
 
 // Per-client state
 export const clientState = new Map();
@@ -357,8 +358,12 @@ export function handleConnection(ws, req) {
   // Track ws connection for admin triggers
   wsConnections.set(clientId, ws);
 
-  // Start proactive alert timer for this client
-  startProactiveAlerts(ws, clientId, getState);
+  // Start proactive alert timer only when explicitly enabled.
+  if (PROACTIVE_ALERTS_ENABLED) {
+    startProactiveAlerts(ws, clientId, getState);
+  } else {
+    logger.info({ msg: 'Proactive alerts disabled', clientId });
+  }
 
   ws.on('message', (message) => handleMessage(ws, message, context));
 
