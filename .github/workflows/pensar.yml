@@ -1,0 +1,26 @@
+name: Pensar Pentest
+
+on:
+  push:
+    branches: [main, enhancements]
+
+jobs:
+  pentest:
+    name: Pensar Pentest
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install Pensar CI
+        run: npm install -g @pensar/ci
+
+      - name: Run Pensar Pentest
+        env:
+          PENSAR_API_KEY: ${{ secrets.PENSAR_API_KEY }}
+        run: pensar pentest --branch ${{ github.ref_name }}
