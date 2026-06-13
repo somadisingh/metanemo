@@ -17,7 +17,7 @@ from typing import Optional, Dict, Any
 from dataclasses import asdict
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import re
 import requests
 
@@ -172,7 +172,7 @@ def _fetch_citywide_mta_alerts(limit: int = 20) -> list:
 # Request/Response models
 class AgentRequest(BaseModel):
     text: Optional[str] = None
-    image_b64: Optional[str] = None
+    image_b64: Optional[str] = Field(None, max_length=10_000_000)
     latitude: float
     longitude: float
     timestamp: Optional[str] = None
