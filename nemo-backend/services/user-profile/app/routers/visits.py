@@ -1,20 +1,24 @@
 """Visit recording routers for place, transit, and location events."""
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 import h3
 import structlog
 import app.db as db
 from app.models import PlaceVisitRequest, TransitVisitRequest, LocationRequest
+from app.auth import get_authenticated_user
 
 router = APIRouter()
 log = structlog.get_logger()
 
 
 @router.post("/visits/place")
-async def record_place_visit(req: PlaceVisitRequest) -> dict:
+async def record_place_visit(req: PlaceVisitRequest, user_id: str = Depends(get_authenticated_user)) -> dict:
     """Record a place visit event in place_visits.
+
+    Requires authentication via X-User-ID header.
 
     Args:
         req: PlaceVisitRequest with place_id, latitude, longitude.
+        user_id: Authenticated user ID from X-User-ID header.
 
     Returns:
         Dict with recorded=True on success.
@@ -33,11 +37,14 @@ async def record_place_visit(req: PlaceVisitRequest) -> dict:
 
 
 @router.post("/visits/transit")
-async def record_transit_visit(req: TransitVisitRequest) -> dict:
+async def record_transit_visit(req: TransitVisitRequest, user_id: str = Depends(get_authenticated_user)) -> dict:
     """Record a transit pattern visit, upserting visit_count in transit_patterns.
+
+    Requires authentication via X-User-ID header.
 
     Args:
         req: TransitVisitRequest with route_id and ISO 8601 timestamp.
+        user_id: Authenticated user ID from X-User-ID header.
 
     Returns:
         Dict with recorded=True on success.
@@ -63,11 +70,14 @@ async def record_transit_visit(req: TransitVisitRequest) -> dict:
 
 
 @router.post("/visits/location")
-async def record_location(req: LocationRequest) -> dict:
+async def record_location(req: LocationRequest, user_id: str = Depends(get_authenticated_user)) -> dict:
     """Record a GPS location visit, mapping to an H3 cell at resolution 9.
+
+    Requires authentication via X-User-ID header.
 
     Args:
         req: LocationRequest with latitude and longitude.
+        user_id: Authenticated user ID from X-User-ID header.
 
     Returns:
         Dict with recorded=True on success.
