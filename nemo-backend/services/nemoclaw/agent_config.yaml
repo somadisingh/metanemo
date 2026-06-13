@@ -2,8 +2,8 @@
 
 agent:
   name: pseudoMetaGlass-agent
-  model: nemotron-3-nano-30b-a3b
-  nim_endpoint: http://nemotron-nim:8000
+  model: nvidia/llama-3.1-nemotron-ultra-253b-v1
+  api_endpoint: https://integrate.api.nvidia.com/v1
   
   tools:
     - name: cold_query
