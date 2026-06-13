@@ -54,52 +54,97 @@ function createApp() {
 
   // Admin: manually trigger proactive alert to all connected clients
   app.post('/admin/alert', async (req, res) => {
-    const pushed = [];
-    for (const [clientId, ws] of wsConnections.entries()) {
-      if (ws.readyState !== ws.OPEN) continue;
-      const state = clientState.get(clientId);
-      if (!state) continue;
-      try {
-        const report = await getSituationReport(state.latitude, state.longitude);
-        if (!report) continue;
-        const bullets = [];
-        for (const h of (report.top_hazards || []).slice(0, 6)) {
-          const id = h.id || (h.type + '_' + (h.description || '').slice(0, 40));
-          if (isSuppressed(id)) continue;
-          bullets.push((h.description || h.type || 'Alert').slice(0, 80));
-          record(id);
-        }
-        for (const a of (report.alerts || []).slice(0, 3)) {
-          if (a.severity === 'high' || a.severity === 'medium') {
-            bullets.push((a.message || a.type || '').slice(0, 80));
-          }
-        }
-        const collisions = report.summary?.collision_hotspots || 0;
-        if (collisions > 0) {
-          bullets.push(collisions + ' pedestrian collision hotspot(s) nearby');
-        }
-        if (bullets.length === 0) {
-          pushed.push({ clientId, status: 'no_new_alerts' });
-          continue;
-        }
-        ws.send(JSON.stringify({
-          serverContent: {
-            proactiveAlert: {
-              bullets,
-              safetyScore: report.safety_score,
-              safetyLevel: report.safety_level,
-              nearbyTransit: report.nearby_transit?.routes || []
+    // Request-level timeout to prevent indefinite hanging (5 seconds)
+    const REQUEST_TIMEOUT_MS = 5000;
+    // Per-client timeout for external service calls (3 seconds)
+    const PER_CLIENT_TIMEOUT_MS = 3000;
+    // Maximum number of clients to process per request to prevent resource exhaustion
+    const MAX_CLIENTS_PER_REQUEST = 50;
+
+    let responded = false;
+    const requestTimer = setTimeout(() => {
+      if (!responded) {
+        responded = true;
+        res.status(503).json({ error: 'Request timed out', totalClients: wsConnections.size });
+      }
+    }, REQUEST_TIMEOUT_MS);
+
+    try {
+      // Collect eligible clients (limit to MAX_CLIENTS_PER_REQUEST)
+      const clients = [];
+      for (const [clientId, ws] of wsConnections.entries()) {
+        if (clients.length >= MAX_CLIENTS_PER_REQUEST) break;
+        if (ws.readyState !== ws.OPEN) continue;
+        const state = clientState.get(clientId);
+        if (!state) continue;
+        clients.push({ clientId, ws, state });
+      }
+
+      // Process all clients in parallel (non-blocking) with per-client timeout
+      const results = await Promise.allSettled(
+        clients.map(async ({ clientId, ws, state }) => {
+          try {
+            // Per-client timeout wrapper around the external service call
+            const report = await Promise.race([
+              getSituationReport(state.latitude, state.longitude),
+              new Promise((_, reject) =>
+                setTimeout(() => reject(new Error('Per-client timeout')), PER_CLIENT_TIMEOUT_MS)
+              )
+            ]);
+            if (!report) return { clientId, status: 'no_report' };
+            const bullets = [];
+            for (const h of (report.top_hazards || []).slice(0, 6)) {
+              const id = h.id || (h.type + '_' + (h.description || '').slice(0, 40));
+              if (isSuppressed(id)) continue;
+              bullets.push((h.description || h.type || 'Alert').slice(0, 80));
+              record(id);
             }
+            for (const a of (report.alerts || []).slice(0, 3)) {
+              if (a.severity === 'high' || a.severity === 'medium') {
+                bullets.push((a.message || a.type || '').slice(0, 80));
+              }
+            }
+            const collisions = report.summary?.collision_hotspots || 0;
+            if (collisions > 0) {
+              bullets.push(collisions + ' pedestrian collision hotspot(s) nearby');
+            }
+            if (bullets.length === 0) {
+              return { clientId, status: 'no_new_alerts' };
+            }
+            ws.send(JSON.stringify({
+              serverContent: {
+                proactiveAlert: {
+                  bullets,
+                  safetyScore: report.safety_score,
+                  safetyLevel: report.safety_level,
+                  nearbyTransit: report.nearby_transit?.routes || []
+                }
+              }
+            }));
+            logger.info({ msg: 'Admin alert pushed', clientId, bulletCount: bullets.length });
+            return { clientId, bulletCount: bullets.length, safetyScore: report.safety_score };
+          } catch (err) {
+            logger.error({ msg: 'Admin alert error', clientId, error: err.message });
+            return { clientId, status: 'error', error: err.message };
           }
-        }));
-        pushed.push({ clientId, bulletCount: bullets.length, safetyScore: report.safety_score });
-        logger.info({ msg: 'Admin alert pushed', clientId, bulletCount: bullets.length });
-      } catch (err) {
-        logger.error({ msg: 'Admin alert error', clientId, error: err.message });
-        pushed.push({ clientId, status: 'error', error: err.message });
+        })
+      );
+
+      const pushed = results.map(r => r.status === 'fulfilled' ? r.value : { status: 'error', error: r.reason?.message });
+
+      if (!responded) {
+        responded = true;
+        clearTimeout(requestTimer);
+        res.json({ pushed, totalClients: wsConnections.size });
+      }
+    } catch (err) {
+      if (!responded) {
+        responded = true;
+        clearTimeout(requestTimer);
+        logger.error({ msg: 'Admin alert endpoint error', error: err.message });
+        res.status(500).json({ error: 'Internal server error' });
       }
     }
-    res.json({ pushed, totalClients: wsConnections.size });
   });
 
   // Health check endpoint
