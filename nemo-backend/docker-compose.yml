@@ -101,6 +101,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
       SOCRATA_APP_TOKEN: ${SOCRATA_APP_TOKEN}
       MTA_API_KEY: ${MTA_API_KEY}
+      SCORE_API_KEY: ${SCORE_API_KEY}
     restart: unless-stopped
 
   middleware:
@@ -130,6 +131,7 @@ services:
       - DATABASE_URL=${DATABASE_URL}
       - BEHAVIOR_RETENTION_DAYS=${BEHAVIOR_RETENTION_DAYS:-90}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - SCORE_API_KEY=${SCORE_API_KEY}
     healthcheck:
       test: [CMD, curl, -f, http://localhost:8081/health]
       interval: 10s

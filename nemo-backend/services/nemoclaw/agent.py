@@ -56,6 +56,7 @@ SOCRATA_311_ENDPOINT = os.environ.get('SOCRATA_311_ENDPOINT', 'https://data.city
 
 # User-profile service endpoint
 USER_PROFILE_URL = os.environ.get('USER_PROFILE_URL', 'http://user-profile:8081')
+SCORE_API_KEY = os.environ.get('SCORE_API_KEY', '')
 
 # Alert type → topic mapping for interest updates
 ALERT_TYPE_TOPIC = {
@@ -68,7 +69,10 @@ ALERT_TYPE_TOPIC = {
 def _post_user_profile(path: str, payload: dict) -> Optional[dict]:
     """Fire-and-forget POST to user-profile; returns response dict or None on error."""
     try:
-        r = requests.post(f"{USER_PROFILE_URL}{path}", json=payload, timeout=2)
+        headers = {}
+        if SCORE_API_KEY:
+            headers['X-API-Key'] = SCORE_API_KEY
+        r = requests.post(f"{USER_PROFILE_URL}{path}", json=payload, headers=headers, timeout=2)
         r.raise_for_status()
         return r.json()
     except Exception as e:
