@@ -44,6 +44,48 @@ function validateEnvironment() {
 }
 
 /**
+ * Authenticate admin requests.
+ * Requires ADMIN_API_KEY env var to be set and a matching
+ * Authorization: Bearer <key> header on the request.
+ */
+function requireAdminAuth(req, res, next) {
+  const adminKey = process.env.ADMIN_API_KEY;
+
+  // If no admin key is configured, the admin endpoint is disabled entirely
+  if (!adminKey) {
+    return res.status(403).json({ error: 'Admin endpoint is disabled (ADMIN_API_KEY not configured)' });
+  }
+
+  const authHeader = req.headers['authorization'];
+  if (!authHeader) {
+    return res.status(401).json({ error: 'Missing Authorization header' });
+  }
+
+  const parts = authHeader.split(' ');
+  if (parts.length !== 2 || parts[0] !== 'Bearer') {
+    return res.status(401).json({ error: 'Invalid Authorization header format. Expected: Bearer <token>' });
+  }
+
+  const token = parts[1];
+
+  // Constant-time comparison to prevent timing attacks
+  if (token.length !== adminKey.length) {
+    return res.status(401).json({ error: 'Invalid admin API key' });
+  }
+
+  let mismatch = 0;
+  for (let i = 0; i < token.length; i++) {
+    mismatch |= token.charCodeAt(i) ^ adminKey.charCodeAt(i);
+  }
+
+  if (mismatch !== 0) {
+    return res.status(401).json({ error: 'Invalid admin API key' });
+  }
+
+  next();
+}
+
+/**
  * Create and configure Express app.
  */
 function createApp() {
@@ -53,7 +95,7 @@ function createApp() {
   
 
   // Admin: manually trigger proactive alert to all connected clients
-  app.post('/admin/alert', async (req, res) => {
+  app.post('/admin/alert', requireAdminAuth, async (req, res) => {
     const pushed = [];
     for (const [clientId, ws] of wsConnections.entries()) {
       if (ws.readyState !== ws.OPEN) continue;
