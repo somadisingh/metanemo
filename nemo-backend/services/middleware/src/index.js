@@ -24,7 +24,8 @@ const REQUIRED_ENV = [
   'TAILSCALE_GN100_IP',
   'TAILSCALE_GN100_PORT',
   'NEMOCLAW_HOST',
-  'NEMOCLAW_PORT'
+  'NEMOCLAW_PORT',
+  'WS_AUTH_TOKEN'
 ];
 
 /**
@@ -149,9 +150,43 @@ async function start() {
   const server = createServer(app);
   
   // Create WebSocket server (Property 1: handles concurrent connections)
+  // verifyClient enforces authentication on WebSocket upgrade requests (CWE-306/CWE-862)
   wss = new WebSocketServer({ 
     server,
-    path: '/ws'
+    path: '/ws',
+    verifyClient: (info, callback) => {
+      const authToken = process.env.WS_AUTH_TOKEN;
+
+      // Fail-closed: if no auth token is configured, reject all connections
+      if (!authToken) {
+        logger.warn({ msg: 'WS connection rejected — WS_AUTH_TOKEN not configured' });
+        callback(false, 401, 'Unauthorized');
+        return;
+      }
+
+      // Extract token from Authorization header or query parameter
+      const url = new URL(info.req.url, `http://${info.req.headers.host || 'localhost'}`);
+      const queryToken = url.searchParams.get('token');
+      const authHeader = info.req.headers['authorization'];
+      let providedToken = null;
+
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        providedToken = authHeader.slice(7);
+      } else if (queryToken) {
+        providedToken = queryToken;
+      }
+
+      if (!providedToken || providedToken !== authToken) {
+        logger.warn({
+          msg: 'WS connection rejected — invalid or missing auth token',
+          ip: info.req.socket.remoteAddress
+        });
+        callback(false, 401, 'Unauthorized');
+        return;
+      }
+
+      callback(true);
+    }
   });
   
   wss.on('connection', handleConnection);
