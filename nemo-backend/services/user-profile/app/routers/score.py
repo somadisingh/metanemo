@@ -1,18 +1,21 @@
 """Alert priority scoring router."""
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 import structlog
 import app.db as db
 from app.models import ScoreRequest, ScoreResponse
 from app import modifier
+from app.auth import verify_api_key
 
 router = APIRouter()
 log = structlog.get_logger()
 
 
-@router.post("/score", response_model=ScoreResponse)
+@router.post("/score", response_model=ScoreResponse, dependencies=[Depends(verify_api_key)])
 async def score_alert(req: ScoreRequest) -> ScoreResponse:
     """Compute a personalized priority score and suppression decision for an alert.
+
+    Requires a valid X-API-Key header for authentication.
 
     Args:
         req: ScoreRequest with alert_type, coordinates, timestamp, and optional ids.
