@@ -6,14 +6,14 @@ from pydantic import BaseModel, Field
 
 class PlaceVisitRequest(BaseModel):
     """Request body for recording a place visit."""
-    place_id: str
+    place_id: str = Field(..., min_length=1, max_length=256)
     latitude: float
     longitude: float
 
 
 class TransitVisitRequest(BaseModel):
     """Request body for recording a transit pattern visit."""
-    route_id: str
+    route_id: str = Field(..., min_length=1, max_length=256)
     timestamp: datetime
 
 
@@ -41,8 +41,8 @@ class ScoreRequest(BaseModel):
     latitude: float
     longitude: float
     timestamp: datetime
-    place_id: Optional[str] = None
-    route_id: Optional[str] = None
+    place_id: Optional[str] = Field(None, max_length=256)
+    route_id: Optional[str] = Field(None, max_length=256)
 
 
 class ScoreResponse(BaseModel):
