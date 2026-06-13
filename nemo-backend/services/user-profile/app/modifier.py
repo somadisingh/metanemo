@@ -28,20 +28,21 @@ def compute_familiarity_score(distinct_day_count: int) -> float:
     return min(distinct_day_count / 50.0, 1.0)
 
 
-def _get_engagement_ratio(conn: psycopg2.extensions.connection, alert_type: str) -> float:
-    """Fetch the engagement ratio for an alert type from alert_engagements.
+def _get_engagement_ratio(conn: psycopg2.extensions.connection, alert_type: str, user_id: str) -> float:
+    """Fetch the engagement ratio for an alert type from alert_engagements, scoped by user.
 
     Args:
         conn: Active psycopg2 connection.
         alert_type: The alert category string.
+        user_id: The authenticated user's ID.
 
     Returns:
         positive_count / max(positive_count + negative_count, 1) as a float.
     """
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT positive_count, negative_count FROM alert_engagements WHERE alert_type = %s",
-            (alert_type,)
+            "SELECT positive_count, negative_count FROM alert_engagements WHERE user_id = %s AND alert_type = %s",
+            (user_id, alert_type)
         )
         row = cur.fetchone()
     if row is None:
@@ -50,19 +51,20 @@ def _get_engagement_ratio(conn: psycopg2.extensions.connection, alert_type: str)
     return pos / max(pos + neg, 1)
 
 
-def _get_interest_weight(conn: psycopg2.extensions.connection, alert_type: str) -> float:
-    """Fetch the interest weight for the topic corresponding to an alert type.
+def _get_interest_weight(conn: psycopg2.extensions.connection, alert_type: str, user_id: str) -> float:
+    """Fetch the interest weight for the topic corresponding to an alert type, scoped by user.
 
     Args:
         conn: Active psycopg2 connection.
         alert_type: The alert category string.
+        user_id: The authenticated user's ID.
 
     Returns:
         The interest weight float in [0.0, 1.0].
     """
     topic = TOPIC_MAP.get(alert_type, "food")
     with conn.cursor() as cur:
-        cur.execute("SELECT weight FROM interest_weights WHERE topic = %s", (topic,))
+        cur.execute("SELECT weight FROM interest_weights WHERE user_id = %s AND topic = %s", (user_id, topic))
         row = cur.fetchone()
     return row[0] if row else 0.5
 
@@ -89,18 +91,19 @@ def _get_familiarity_from_db(conn: psycopg2.extensions.connection, lat: float, l
     return compute_familiarity_score(count)
 
 
-def compute_score(conn: psycopg2.extensions.connection, req: ScoreRequest) -> ScoreResponse:
+def compute_score(conn: psycopg2.extensions.connection, req: ScoreRequest, user_id: str) -> ScoreResponse:
     """Compute a personalized priority score and suppression decision for an alert.
 
     Args:
         conn: Active psycopg2 connection.
         req: The score request containing alert_type, coordinates, and optional ids.
+        user_id: The authenticated user's ID for per-user data isolation.
 
     Returns:
         ScoreResponse with priority_score, suppressed, and proactive fields.
     """
-    engagement_ratio = _get_engagement_ratio(conn, req.alert_type)
-    interest_weight = _get_interest_weight(conn, req.alert_type)
+    engagement_ratio = _get_engagement_ratio(conn, req.alert_type, user_id)
+    interest_weight = _get_interest_weight(conn, req.alert_type, user_id)
     base = engagement_ratio * interest_weight
 
     adjusted = base
