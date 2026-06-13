@@ -39,8 +39,11 @@ services:
     image: ollama/ollama:latest
     container_name: metaglass-ollama
     networks: [metaglass-net]
-    ports:
-      - "11434:11434"
+    expose:
+      - "11434"
+    environment:
+      OLLAMA_HOST: "0.0.0.0:11434"
+      OLLAMA_ORIGINS: "http://nemoclaw:*,http://metaglass-nemoclaw:*"
     volumes:
       - ollama-data:/root/.ollama
     healthcheck:
