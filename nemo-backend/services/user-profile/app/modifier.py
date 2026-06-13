@@ -1,5 +1,4 @@
 """AlertModifier: computes personalized priority scores for alerts."""
-from typing import Optional
 import h3
 import psycopg2.extensions
 import structlog
@@ -106,17 +105,7 @@ def compute_score(conn: psycopg2.extensions.connection, req: ScoreRequest) -> Sc
     adjusted = base
     proactive = False
 
-    if req.alert_type == "restaurant" and req.place_id:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT COUNT(*) FROM place_visits WHERE place_id = %s",
-                (req.place_id,)
-            )
-            row = cur.fetchone()
-        prior_visits = row[0] if row else 0
-        adjusted = base * max(0.0, 1.0 - prior_visits * 0.15)
-
-    elif req.alert_type == "transit" and req.route_id:
+    if req.alert_type == "transit" and req.route_id:
         hour = req.timestamp.hour
         dow = req.timestamp.weekday()
         with conn.cursor() as cur:
