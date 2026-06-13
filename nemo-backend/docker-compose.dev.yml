@@ -14,17 +14,17 @@ services:
     container_name: metaglass-postgres
     networks: [metaglass-net]
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./data/human-impact/schema/init.sql:/docker-entrypoint-initdb.d/01_human_init.sql:ro
       - ./data/cultural-impact/schema/init.sql:/docker-entrypoint-initdb.d/02_cultural_init.sql:ro
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-metaglass}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-metaglass2026}
-      POSTGRES_DB: ${POSTGRES_DB:-metaglass}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U metaglass"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -44,9 +44,9 @@ services:
     environment:
       POSTGRES_HOST: postgres-postgis
       POSTGRES_PORT: 5432
-      POSTGRES_USER: ${POSTGRES_USER:-metaglass}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-metaglass2026}
-      POSTGRES_DB: ${POSTGRES_DB:-metaglass}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
       NEMOTRON_NIM_HOST: metaglass-nemotron
       NEMOTRON_NIM_PORT: 8000
       NEMOCLAW_CONFIDENCE_THRESHOLD: 0.7
