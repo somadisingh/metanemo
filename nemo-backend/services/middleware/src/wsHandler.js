@@ -348,6 +348,31 @@ export async function handleMessage(ws, message, context) {
 }
 
 export function handleConnection(ws, req) {
+  // Defense-in-depth: verify auth token even though verifyClient should have checked
+  const authToken = process.env.WS_AUTH_TOKEN;
+  if (!authToken) {
+    logger.warn({ msg: 'Connection rejected — WS_AUTH_TOKEN not configured' });
+    ws.close(1008, 'Unauthorized');
+    return;
+  }
+
+  const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+  const queryToken = url.searchParams.get('token');
+  const authHeader = req.headers['authorization'];
+  let providedToken = null;
+
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    providedToken = authHeader.slice(7);
+  } else if (queryToken) {
+    providedToken = queryToken;
+  }
+
+  if (!providedToken || providedToken !== authToken) {
+    logger.warn({ msg: 'Connection rejected — invalid auth token', ip: req.socket.remoteAddress });
+    ws.close(1008, 'Unauthorized');
+    return;
+  }
+
   const clientId = `client_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   const clientIp = req.socket.remoteAddress;
 
